@@ -277,6 +277,169 @@ local dungeonBtn = createToggleButton(
     "Dungeon Loop: OFF"
 )
 
+-- DUNGEON SETTINGS
+local DungeonSettings = env.DigimonEraDungeonSettings or {
+    Map = "Forest",
+    Level = "61-100",
+    LockMap = false,
+    LockLevel = false
+}
+env.DigimonEraDungeonSettings = DungeonSettings
+
+local DungeonLevels = {
+    Forest = {"1-10", "11-30", "31-60", "61-100", "101-150", "151-220"},
+    Volcano = {"1-30", "31-60", "61-110", "111-170", "171-240"},
+    Snowland = {"20-40", "41-70", "71-140", "141-190", "191-260"}
+}
+
+-- ตรวจสอบค่าเดิมให้ตรงกับแผนที่
+local function validateDungeonSettings()
+    if not DungeonLevels[DungeonSettings.Map] then
+        DungeonSettings.Map = "Forest"
+    end
+
+    local valid = false
+    for _, level in ipairs(DungeonLevels[DungeonSettings.Map]) do
+        if level == DungeonSettings.Level then
+            valid = true
+            break
+        end
+    end
+
+    if not valid then
+        DungeonSettings.Level = DungeonLevels[DungeonSettings.Map][1]
+    end
+end
+
+validateDungeonSettings()
+
+local settingsBtn = Instance.new("TextButton")
+settingsBtn.Name = "DungeonSettingsBtn"
+settingsBtn.Size = UDim2.new(0, 24, 0, 24)
+settingsBtn.Position = UDim2.new(0.69, 0, 0.02, 0)
+settingsBtn.BackgroundColor3 = Color3.fromRGB(60, 90, 140)
+settingsBtn.TextColor3 = Color3.new(1, 1, 1)
+settingsBtn.TextSize = 14
+settingsBtn.Font = Enum.Font.SourceSansBold
+settingsBtn.Text = "D"
+settingsBtn.Parent = mainFrame
+
+local settingsFrame = Instance.new("Frame")
+settingsFrame.Name = "DungeonSettingsFrame"
+settingsFrame.Size = UDim2.new(0, 220, 0, 205)
+settingsFrame.Position = UDim2.new(1, 8, 0, 30)
+settingsFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+settingsFrame.Visible = false
+settingsFrame.Parent = mainFrame
+
+local settingsCorner = Instance.new("UICorner")
+settingsCorner.CornerRadius = UDim.new(0, 8)
+settingsCorner.Parent = settingsFrame
+
+local function makeSettingsButton(name, y, text)
+    local btn = Instance.new("TextButton")
+    btn.Name = name
+    btn.Size = UDim2.new(0.9, 0, 0, 30)
+    btn.Position = UDim2.new(0.05, 0, 0, y)
+    btn.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.TextSize = 13
+    btn.Font = Enum.Font.SourceSansBold
+    btn.Text = text
+    btn.Parent = settingsFrame
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 5)
+    corner.Parent = btn
+
+    return btn
+end
+
+local mapBtn = makeSettingsButton("MapSelectBtn", 10, "")
+local levelBtn = makeSettingsButton("LevelSelectBtn", 48, "")
+local lockMapBtn = makeSettingsButton("LockMapBtn", 86, "")
+local lockLevelBtn = makeSettingsButton("LockLevelBtn", 124, "")
+
+local closeSettingsBtn = makeSettingsButton("CloseSettingsBtn", 162, "Close")
+
+local function refreshDungeonSettingsUI()
+    mapBtn.Text = "Map: " .. DungeonSettings.Map
+    levelBtn.Text = "Level: " .. DungeonSettings.Level
+    lockMapBtn.Text = "Lock Map: " .. (DungeonSettings.LockMap and "ON" or "OFF")
+    lockLevelBtn.Text = "Lock Level: " .. (DungeonSettings.LockLevel and "ON" or "OFF")
+
+    mapBtn.BackgroundColor3 = DungeonSettings.LockMap
+        and Color3.fromRGB(100, 70, 70)
+        or Color3.fromRGB(55, 55, 55)
+
+    levelBtn.BackgroundColor3 = DungeonSettings.LockLevel
+        and Color3.fromRGB(100, 70, 70)
+        or Color3.fromRGB(55, 55, 55)
+end
+
+settingsBtn.MouseButton1Click:Connect(function()
+    settingsFrame.Visible = not settingsFrame.Visible
+end)
+
+mapBtn.MouseButton1Click:Connect(function()
+    if DungeonSettings.LockMap then
+        sendNotification("Dungeon Settings", "ปลดล็อก Map ก่อนเปลี่ยน")
+        return
+    end
+
+    local maps = {"Forest", "Volcano", "Snowland"}
+    local currentIndex = table.find(maps, DungeonSettings.Map) or 1
+    currentIndex = currentIndex % #maps + 1
+    DungeonSettings.Map = maps[currentIndex]
+
+    if not DungeonSettings.LockLevel then
+        DungeonSettings.Level = DungeonLevels[DungeonSettings.Map][1]
+    else
+        local found = false
+        for _, level in ipairs(DungeonLevels[DungeonSettings.Map]) do
+            if level == DungeonSettings.Level then
+                found = true
+                break
+            end
+        end
+
+        if not found then
+            DungeonSettings.Level = DungeonLevels[DungeonSettings.Map][1]
+        end
+    end
+
+    refreshDungeonSettingsUI()
+end)
+
+levelBtn.MouseButton1Click:Connect(function()
+    if DungeonSettings.LockLevel then
+        sendNotification("Dungeon Settings", "ปลดล็อก Level ก่อนเปลี่ยน")
+        return
+    end
+
+    local levels = DungeonLevels[DungeonSettings.Map]
+    local currentIndex = table.find(levels, DungeonSettings.Level) or 0
+    currentIndex = currentIndex % #levels + 1
+    DungeonSettings.Level = levels[currentIndex]
+
+    refreshDungeonSettingsUI()
+end)
+
+lockMapBtn.MouseButton1Click:Connect(function()
+    DungeonSettings.LockMap = not DungeonSettings.LockMap
+    refreshDungeonSettingsUI()
+end)
+
+lockLevelBtn.MouseButton1Click:Connect(function()
+    DungeonSettings.LockLevel = not DungeonSettings.LockLevel
+    refreshDungeonSettingsUI()
+end)
+
+closeSettingsBtn.MouseButton1Click:Connect(function()
+    settingsFrame.Visible = false
+end)
+
+refreshDungeonSettingsUI()
 local env = getgenv and getgenv() or _G
 env.DigimonEraDungeonLoop = env.DigimonEraDungeonLoop == true
 local AUTO_DUNGEON_LOOP = env.DigimonEraDungeonLoop
@@ -1603,16 +1766,18 @@ local LOBBY_PLACE_ID = 84773733171614
 local DUNGEON_PLACE_ID = 112998674138179
 local DUNGEON_DURATION = 60
 
--- ใช้การตั้งค่าที่บันทึกไว้
-local DungeonSettings = env.DigimonEraDungeonSettings or {
-    Map = "Forest",
-    Level = "61-100",
-    LockMap = false,
-    LockLevel = false
-}
-env.DigimonEraDungeonSettings = DungeonSettings
+-- ใช้การตั้งค่าจาก Dungeon Settings UI
+local DungeonSettings = env.DigimonEraDungeonSettings
+if not DungeonSettings then
+    DungeonSettings = {
+        Map = "Forest",
+        Level = "61-100",
+        LockMap = false,
+        LockLevel = false
+    }
+    env.DigimonEraDungeonSettings = DungeonSettings
+end
 
--- รายการเลเวลของแต่ละแผนที่
 local DungeonLevels = {
     Forest = {
         "1-10", "11-30", "31-60",
@@ -1630,13 +1795,19 @@ local DungeonLevels = {
 
 local function walkIntoNearestLift()
     local folder = workspace:FindFirstChild("MatchmakingZones")
-    if not folder then return false end
+    if not folder then
+        warn("[Dungeon Loop] ไม่พบ MatchmakingZones")
+        return false
+    end
 
     local character = player.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 
-    if not root or not humanoid then return false end
+    if not root or not humanoid then
+        warn("[Dungeon Loop] ไม่พบตัวละครหรือ Humanoid")
+        return false
+    end
 
     local nearest, bestDistance
 
@@ -1658,7 +1829,10 @@ local function walkIntoNearestLift()
         end
     end
 
-    if not nearest then return false end
+    if not nearest then
+        warn("[Dungeon Loop] ไม่พบลิฟต์")
+        return false
+    end
 
     local targetPos = nearest:GetPivot().Position
     humanoid:MoveTo(targetPos)
@@ -1688,17 +1862,18 @@ local function selectForestAndStart()
         return false
     end
 
-    -- ตรวจสอบแผนที่ที่ตั้งไว้
+    -- อ่านค่าจาก UI
     local mapName = DungeonSettings.Map
+    local selectedLevel = DungeonSettings.Level
+
+    -- ตรวจสอบแผนที่
     if not DungeonLevels[mapName] then
         warn("[Dungeon Loop] ชื่อแผนที่ไม่ถูกต้อง:", tostring(mapName))
         return false
     end
 
-    -- ตรวจสอบเลเวลที่ตั้งไว้
-    local selectedLevel = DungeonSettings.Level
+    -- ตรวจสอบว่าเลเวลอยู่ในแผนที่ที่เลือก
     local validLevel = false
-
     for _, levelName in ipairs(DungeonLevels[mapName]) do
         if levelName == selectedLevel then
             validLevel = true
@@ -1727,7 +1902,7 @@ local function selectForestAndStart()
 
     task.wait(0.5)
 
-    -- อ่านรายการเลเวลหลังเลือกแผนที่
+    -- อ่านรายการเลเวลหลังเปลี่ยนแผนที่
     chooseMap = main:FindFirstChild("ChooseMap")
     local levelList = chooseMap
         and chooseMap:FindFirstChild("LevelChooseScrolling")
@@ -1737,7 +1912,7 @@ local function selectForestAndStart()
         return false
     end
 
-    -- ค้นหาด้วย Name เพราะ Text ของปุ่มว่าง
+    -- ใช้ Name ของปุ่ม เพราะ Text ว่าง
     local levelButton
 
     for _, obj in ipairs(levelList:GetDescendants()) do
@@ -1770,7 +1945,7 @@ local function selectForestAndStart()
         return false
     end
 
-    -- กด Start ในหน้ารอยืนยัน
+    -- กดยืนยัน Start ในหน้ารอ Teleport
     local waiting = main:WaitForChild("TeleportWaiting", 15)
     local secondStart = waiting and waiting:WaitForChild("StartButton", 10)
 
@@ -1810,7 +1985,6 @@ local function runDungeonRound()
         enableAllAutoButtons()
 
         local started = tick()
-
         while AUTO_DUNGEON_LOOP
             and tick() - started < DUNGEON_DURATION do
             task.wait(0.25)
@@ -1834,7 +2008,7 @@ local function runDungeonRound()
     end
 end
 
--- ป้องกันการรันรอบดันเจี้ยนซ้ำซ้อน
+-- ป้องกันรอบดันเจี้ยนทำงานซ้อนกัน
 local dungeonRoundRunning = false
 
 task.spawn(function()
@@ -1843,7 +2017,6 @@ task.spawn(function()
             dungeonRoundRunning = true
 
             local ok, err = pcall(runDungeonRound)
-
             if not ok then
                 warn("[Dungeon Loop]", err)
             end
@@ -1854,7 +2027,6 @@ task.spawn(function()
         task.wait(1)
     end
 end)
-
 -- ================================================
 -- MAIN LOOP (WITH DYNAMIC ENEMIES FOLDER)
 -- ================================================
