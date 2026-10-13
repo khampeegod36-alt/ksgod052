@@ -1951,11 +1951,20 @@ local mapInfo = main:FindFirstChild("MapInfo")
 local startButton = mapInfo and mapInfo:FindFirstChild("StartButton")
 
     
-    if not startButton or not fireButton(startButton) then
-        warn("[Dungeon Loop] กด Start ไม่สำเร็จ")
-        return false
-    end
+    if not startButton then
+    warn("[Dungeon Loop] ไม่พบ MapInfo.StartButton")
+    return false
+end
 
+warn("[Dungeon Loop] พบ StartButton:", startButton.ClassName, startButton:GetFullName())
+
+local startOK = fireButton(startButton)
+warn("[Dungeon Loop] fireButton result:", startOK)
+
+if not startOK then
+    warn("[Dungeon Loop] กด Start ไม่สำเร็จ")
+    return false
+end
     -- กดยืนยัน Start ในหน้ารอ Teleport
     local waiting = main:WaitForChild("TeleportWaiting", 15)
     local secondStart = waiting and waiting:WaitForChild("StartButton", 10)
