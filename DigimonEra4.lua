@@ -338,18 +338,21 @@ end
 if exploreBtn then updateButton(exploreBtn, AUTO_EXPLORE, "Auto Explore") end
 if dungeonBtn then updateButton(dungeonBtn, AUTO_DUNGEON_LOOP, "Dungeon Loop") end
 
--- ================================================
--- AUTO ENABLE ALL AFTER ENTERING DUNGEON
--- ================================================
 
+-- AUTO ENABLE ALL AFTER ENTERING DUNGEON
 local DUNGEON_PLACE_ID = 112998674138179
 local UI_LOAD_DELAY = 10
-
 
 local autoEnableRunning = false
 local autoAlreadyEnabled = false
 
 local function enableAllAutoButtons()
+    if autoAlreadyEnabled then
+        return
+    end
+
+    autoAlreadyEnabled = true
+
     AUTO_FARM = true
     updateButton(farmBtn, true, "Auto Farm")
 
@@ -372,7 +375,9 @@ local function enableAllAutoButtons()
         _G.EnableFarmModesRunning = true
 
         task.spawn(function()
-            local ok, err = pcall(enableFarmModes)
+            local ok, err = pcall(function()
+                enableFarmModes()
+            end)
 
             _G.EnableFarmModesRunning = false
 
@@ -382,10 +387,7 @@ local function enableAllAutoButtons()
         end)
     end
 
-    sendNotification(
-        "Digimon Era",
-        "เปิด Auto ทั้งหมดเรียบร้อย"
-    )
+    sendNotification("Digimon Era", "เปิด Auto ทั้งหมดเรียบร้อย")
 end
 
 local function checkDungeonAndEnableAutos()
@@ -404,14 +406,21 @@ local function checkDungeonAndEnableAutos()
 
         if game.PlaceId == DUNGEON_PLACE_ID then
             enableAllAutoButtons()
-            autoAlreadyEnabled = true
         end
 
         autoEnableRunning = false
     end)
 end
 
+-- ตรวจสอบ Dungeon หลังระบบ Auto พร้อมทำงาน
 checkDungeonAndEnableAutos()
+
+task.spawn(function()
+    while screenGui.Parent do
+        task.wait(2)
+        checkDungeonAndEnableAutos()
+    end
+end)
 -- ================================================
 -- TOGGLE BUTTON EVENTS
 -- ================================================
