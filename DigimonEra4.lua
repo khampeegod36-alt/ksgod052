@@ -75,7 +75,7 @@ local function setupTeleportQueue()
         local Players = game:GetService("Players")
         local CoreGui = game:GetService("CoreGui")
         local player = Players.LocalPlayer
-        local UI_NAME = "DigimonEra_MultiUI"
+        local UI_NAME = "DigimonEra4_MultiUI"
 
         local function hasUI(parent)
             return parent ~= nil
@@ -93,7 +93,7 @@ local function setupTeleportQueue()
         end
 
         local ok, err = pcall(function()
-            local url = "https://raw.githubusercontent.com/khampeegod36-alt/ksgod01/refs/heads/main/digimonEra3.lua"
+            local url = "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/digimonEra4.lua"
             local src = game:HttpGet(url, true)
             local fn, loadErr = loadstring(src)
 
