@@ -1595,12 +1595,38 @@ local function walkToTarget(character, humanoid, targetPosition)
 end
 
 -- ================================================
+
 -- AUTO DUNGEON LOOP (WITH GUARD LOCK)
 -- ================================================
 
 local LOBBY_PLACE_ID = 84773733171614
 local DUNGEON_PLACE_ID = 112998674138179
 local DUNGEON_DURATION = 60
+
+-- ใช้การตั้งค่าที่บันทึกไว้
+local DungeonSettings = env.DigimonEraDungeonSettings or {
+    Map = "Forest",
+    Level = "61-100",
+    LockMap = false,
+    LockLevel = false
+}
+env.DigimonEraDungeonSettings = DungeonSettings
+
+-- รายการเลเวลของแต่ละแผนที่
+local DungeonLevels = {
+    Forest = {
+        "1-10", "11-30", "31-60",
+        "61-100", "101-150", "151-220"
+    },
+    Volcano = {
+        "1-30", "31-60", "61-110",
+        "111-170", "171-240"
+    },
+    Snowland = {
+        "20-40", "41-70", "71-140",
+        "141-190", "191-260"
+    }
+}
 
 local function walkIntoNearestLift()
     local folder = workspace:FindFirstChild("MatchmakingZones")
@@ -1624,7 +1650,6 @@ local function walkIntoNearestLift()
 
             if ok then
                 local distance = (root.Position - pos).Magnitude
-
                 if not bestDistance or distance < bestDistance then
                     nearest = lift
                     bestDistance = distance
@@ -1658,65 +1683,112 @@ local function selectForestAndStart()
     local main = pg and pg:WaitForChild("Main", 10)
     local chooseMap = main and main:WaitForChild("ChooseMap", 20)
 
-    if not chooseMap then return false end
+    if not chooseMap then
+        warn("[Dungeon Loop] ไม่พบ ChooseMap")
+        return false
+    end
 
+    -- ตรวจสอบแผนที่ที่ตั้งไว้
+    local mapName = DungeonSettings.Map
+    if not DungeonLevels[mapName] then
+        warn("[Dungeon Loop] ชื่อแผนที่ไม่ถูกต้อง:", tostring(mapName))
+        return false
+    end
+
+    -- ตรวจสอบเลเวลที่ตั้งไว้
+    local selectedLevel = DungeonSettings.Level
+    local validLevel = false
+
+    for _, levelName in ipairs(DungeonLevels[mapName]) do
+        if levelName == selectedLevel then
+            validLevel = true
+            break
+        end
+    end
+
+    if not validLevel then
+        warn("[Dungeon Loop] เลเวลไม่ตรงกับแผนที่:", mapName, selectedLevel)
+        return false
+    end
+
+    -- เลือกแผนที่
     local mapList = chooseMap:FindFirstChild("MapChooseScrolling")
-    local forest = mapList and mapList:FindFirstChild("Forest")
+    local mapButton = mapList and mapList:FindFirstChild(mapName)
 
-    if not forest or not fireButton(forest) then
+    if not mapButton or not mapButton:IsA("GuiButton") then
+        warn("[Dungeon Loop] ไม่พบปุ่มแผนที่:", mapName)
+        return false
+    end
+
+    if not fireButton(mapButton) then
+        warn("[Dungeon Loop] กดเลือกแผนที่ไม่สำเร็จ:", mapName)
         return false
     end
 
     task.wait(0.5)
 
+    -- อ่านรายการเลเวลหลังเลือกแผนที่
     chooseMap = main:FindFirstChild("ChooseMap")
     local levelList = chooseMap
         and chooseMap:FindFirstChild("LevelChooseScrolling")
 
-    if not levelList then return false end
+    if not levelList then
+        warn("[Dungeon Loop] ไม่พบ LevelChooseScrolling")
+        return false
+    end
 
+    -- ค้นหาด้วย Name เพราะ Text ของปุ่มว่าง
     local levelButton
 
     for _, obj in ipairs(levelList:GetDescendants()) do
-        if obj:IsA("GuiButton") then
-            local text = tostring(obj.Text):gsub("%s+", "")
-
-            if text == "61~100"
-                or text == "61-100"
-                or text == "61–100" then
-                levelButton = obj
-                break
-            end
+        if obj:IsA("GuiButton")
+            and obj.Visible
+            and obj.Name == selectedLevel then
+            levelButton = obj
+            break
         end
     end
 
-    if not levelButton or not fireButton(levelButton) then
-        warn("[Dungeon Loop] ไม่พบปุ่มระดับ 61-100")
+    if not levelButton then
+        warn("[Dungeon Loop] ไม่พบปุ่มเลเวล:", selectedLevel)
+        return false
+    end
+
+    if not fireButton(levelButton) then
+        warn("[Dungeon Loop] กดเลือกเลเวลไม่สำเร็จ:", selectedLevel)
         return false
     end
 
     task.wait(0.5)
 
+    -- กด Start
     local mapInfo = main:FindFirstChild("MapInfo")
     local startButton = mapInfo and mapInfo:FindFirstChild("StartButton")
 
     if not startButton or not fireButton(startButton) then
+        warn("[Dungeon Loop] กด Start ไม่สำเร็จ")
         return false
     end
 
+    -- กด Start ในหน้ารอยืนยัน
     local waiting = main:WaitForChild("TeleportWaiting", 15)
     local secondStart = waiting and waiting:WaitForChild("StartButton", 10)
 
-    if not secondStart then return false end
+    if not secondStart then
+        warn("[Dungeon Loop] ไม่พบปุ่ม Start ใน TeleportWaiting")
+        return false
+    end
 
     task.wait(0.5)
-
     return fireButton(secondStart)
 end
 
 local function runDungeonRound()
     if game.PlaceId == LOBBY_PLACE_ID then
-        sendNotification("Dungeon Loop", "กำลังหาลิฟต์เข้า Forest")
+        sendNotification(
+            "Dungeon Loop",
+            "กำลังหาลิฟต์เข้า " .. tostring(DungeonSettings.Map)
+        )
 
         if not walkIntoNearestLift() then
             warn("[Dungeon Loop] เดินเข้าลิฟต์ไม่สำเร็จ")
@@ -1726,7 +1798,7 @@ local function runDungeonRound()
         task.wait(1)
 
         if not selectForestAndStart() then
-            warn("[Dungeon Loop] เลือกแมพหรือกด Start ไม่สำเร็จ")
+            warn("[Dungeon Loop] เลือกแผนที่หรือกด Start ไม่สำเร็จ")
         end
 
         return
@@ -1735,7 +1807,7 @@ local function runDungeonRound()
     if game.PlaceId == DUNGEON_PLACE_ID then
         sendNotification("Dungeon Loop", "เริ่มฟาร์ม 60 วินาที")
 
-      enableAllAutoButtons()
+        enableAllAutoButtons()
 
         local started = tick()
 
