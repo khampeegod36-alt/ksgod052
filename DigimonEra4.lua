@@ -1149,10 +1149,10 @@ local isHealing = false
 
 -- ลำดับความสำคัญของยา
 local POTION_PRIORITY = {
-    "S-Rank Potion",
-    "M-Rank Potion",
-    "L-Rank Potion"
-}
+    "Single Healing Potion L",
+    "Single Healing Potion M",
+    "Single Healing Potion S"
+
 
 -- ตรวจสอบ HP จากข้อความรูปแบบ Current / Max
 local function getDigimonHP()
