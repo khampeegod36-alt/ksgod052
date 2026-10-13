@@ -277,13 +277,21 @@ local dungeonBtn = createToggleButton(
     "Dungeon Loop: OFF"
 )
 
+
+-- ================================================
 -- DUNGEON SETTINGS
+-- ================================================
+
+-- ประกาศ env ก่อนใช้งาน
+local env = getgenv and getgenv() or _G
+
 local DungeonSettings = env.DigimonEraDungeonSettings or {
     Map = "Forest",
     Level = "61-100",
     LockMap = false,
     LockLevel = false
 }
+
 env.DigimonEraDungeonSettings = DungeonSettings
 
 local DungeonLevels = {
@@ -299,6 +307,7 @@ local function validateDungeonSettings()
     end
 
     local valid = false
+
     for _, level in ipairs(DungeonLevels[DungeonSettings.Map]) do
         if level == DungeonSettings.Level then
             valid = true
@@ -311,6 +320,7 @@ local function validateDungeonSettings()
     end
 end
 
+-- ตรวจสอบค่าทันที
 validateDungeonSettings()
 
 local settingsBtn = Instance.new("TextButton")
