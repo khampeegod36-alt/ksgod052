@@ -1,3 +1,4 @@
+print("[Digimon Era] SCRIPT STARTED")
 -- ================================================
 -- DIGIMON ERA AUTO FARM + AUTO FEED + AUTO EXPLORE + DUNGEON LOOP
 -- SINGLE UI + TELEPORT QUEUE (FULL VERSION)
@@ -727,14 +728,6 @@ enableFarmModes = function()
         print("[Auto Farm] Auto Skill เปิดอยู่แล้ว")
     end
 end
-checkDungeonAndEnableAutos()
-
-task.spawn(function()
-    while screenGui.Parent do
-        task.wait(2)
-        checkDungeonAndEnableAutos()
-    end
-end)
 -- ================================================
 -- AUTO FEED
 -- ================================================
@@ -1277,7 +1270,7 @@ task.spawn(function()
                     )
 
                     if fireButton(nextRoom) then
-                        exploreRoomSelections += 1
+                        exploreRoomSelections = exploreRoomSelections + 1
                         lastInvestigateTime = tick()
 
                         print(
@@ -1776,32 +1769,7 @@ local LOBBY_PLACE_ID = 84773733171614
 local DUNGEON_PLACE_ID = 112998674138179
 local DUNGEON_DURATION = 60
 
--- ใช้การตั้งค่าจาก Dungeon Settings UI
-local DungeonSettings = env.DigimonEraDungeonSettings
-if not DungeonSettings then
-    DungeonSettings = {
-        Map = "Forest",
-        Level = "61-100",
-        LockMap = false,
-        LockLevel = false
-    }
-    env.DigimonEraDungeonSettings = DungeonSettings
-end
-
-local DungeonLevels = {
-    Forest = {
-        "1-10", "11-30", "31-60",
-        "61-100", "101-150", "151-220"
-    },
-    Volcano = {
-        "1-30", "31-60", "61-110",
-        "111-170", "171-240"
-    },
-    Snowland = {
-        "20-40", "41-70", "71-140",
-        "141-190", "191-260"
-    }
-}
+-- ใช้ DungeonSettings และ DungeonLevels ที่ประกาศไว้ในส่วน UI ด้านบน
 
 local function walkIntoNearestLift()
     local folder = workspace:FindFirstChild("MatchmakingZones")
@@ -1945,26 +1913,25 @@ local function selectForestAndStart()
     end
 
     task.wait(0.5)
-    
+
     -- กด Start
-local mapInfo = main:FindFirstChild("MapInfo")
-local startButton = mapInfo and mapInfo:FindFirstChild("StartButton")
+    local mapInfo = main:FindFirstChild("MapInfo")
+    local startButton = mapInfo and mapInfo:FindFirstChild("StartButton")
 
-    
     if not startButton then
-    warn("[Dungeon Loop] ไม่พบ MapInfo.StartButton")
-    return false
-end
+        warn("[Dungeon Loop] ไม่พบ MapInfo.StartButton")
+        return false
+    end
 
-warn("[Dungeon Loop] พบ StartButton:", startButton.ClassName, startButton:GetFullName())
+    warn("[Dungeon Loop] พบ StartButton:", startButton.ClassName, startButton:GetFullName())
 
-local startOK = fireButton(startButton)
-warn("[Dungeon Loop] fireButton result:", startOK)
+    local startOK = fireButton(startButton)
+    warn("[Dungeon Loop] fireButton result:", startOK)
 
-if not startOK then
-    warn("[Dungeon Loop] กด Start ไม่สำเร็จ")
-    return false
-end
+    if not startOK then
+        warn("[Dungeon Loop] กด Start ไม่สำเร็จ")
+        return false
+    end
     -- กดยืนยัน Start ในหน้ารอ Teleport
     local waiting = main:WaitForChild("TeleportWaiting", 15)
     local secondStart = waiting and waiting:WaitForChild("StartButton", 10)
