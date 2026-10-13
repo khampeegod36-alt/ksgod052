@@ -1946,8 +1946,6 @@ local function selectForestAndStart()
 
     task.wait(0.5)
     
-
-    
     -- กด Start
 local mapInfo = main:FindFirstChild("MapInfo")
 local startButton = mapInfo and mapInfo:FindFirstChild("StartButton")
