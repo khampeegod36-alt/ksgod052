@@ -93,9 +93,9 @@ local function setupTeleportQueue()
         end
 
         local ok, err = pcall(function()
-            local url = "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/digimonEra4.lua"
-            local src = game:HttpGet(url, true)
-            local fn, loadErr = loadstring(src)
+        local url = "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra4.lua"
+        local src = game:HttpGet(url, true)
+        local fn, loadErr = loadstring(src)
 
             if not fn then
                 error(loadErr or "โหลดสคริปต์ไม่สำเร็จ")
