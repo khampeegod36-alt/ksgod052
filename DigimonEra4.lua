@@ -1945,7 +1945,7 @@ local function selectForestAndStart()
     end
 
     task.wait(0.5)
-
+warn("[Dungeon Loop] มาถึงขั้นตอนกด Start แล้ว")
     -- กด Start
 local mapInfo = main:FindFirstChild("MapInfo")
 local startButton = mapInfo and mapInfo:FindFirstChild("StartButton")
