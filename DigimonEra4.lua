@@ -554,7 +554,14 @@ enableFarmModes = function()
         print("[Auto Farm] Auto Skill เปิดอยู่แล้ว")
     end
 end
+checkDungeonAndEnableAutos()
 
+task.spawn(function()
+    while screenGui.Parent do
+        task.wait(2)
+        checkDungeonAndEnableAutos()
+    end
+end)
 -- ================================================
 -- AUTO FEED
 -- ================================================
@@ -1728,9 +1735,7 @@ local function runDungeonRound()
     if game.PlaceId == DUNGEON_PLACE_ID then
         sendNotification("Dungeon Loop", "เริ่มฟาร์ม 60 วินาที")
 
-        AUTO_FARM = true
-        updateButton(farmBtn, true, "Auto Farm")
-        task.spawn(enableFarmModes)
+      enableAllAutoButtons()
 
         local started = tick()
 
