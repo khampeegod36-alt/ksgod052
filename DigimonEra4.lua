@@ -1152,7 +1152,7 @@ local POTION_PRIORITY = {
     "Single Healing Potion L",
     "Single Healing Potion M",
     "Single Healing Potion S"
-
+}
 
 -- ตรวจสอบ HP จากข้อความรูปแบบ Current / Max
 local function getDigimonHP()
