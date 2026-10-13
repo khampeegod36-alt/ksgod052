@@ -1949,10 +1949,12 @@ local function selectForestAndStart()
     -- กด Start
     local mapInfo = main:FindFirstChild("MapInfo")
     local startButton = mapInfo and mapInfo:FindFirstChild("StartButton")
+    
 warn("[Dungeon Loop] MapInfo:", mapInfo and mapInfo:GetFullName() or "ไม่พบ")
 warn("[Dungeon Loop] StartButton:", startButton and startButton:GetFullName() or "ไม่พบ")
 warn("[Dungeon Loop] Class:", startButton and startButton.ClassName or "ไม่มี")
 warn("[Dungeon Loop] Visible:", startButton and tostring(startButton.Visible) or "ไม่มี")
+    
     if not startButton or not fireButton(startButton) then
         warn("[Dungeon Loop] กด Start ไม่สำเร็จ")
         return false
