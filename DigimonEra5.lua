@@ -1,7 +1,7 @@
-print("[Digimon Era] SCRIPT STARTED - INVENTORY ITEM AUTO HEAL FIX")
+print("[Digimon Era] SCRIPT STARTED - DIRECT KEYBOARD & UI SLOT 4 PRESS FIX")
 -- ================================================
 -- DIGIMON ERA AUTO FARM + AUTO FEED + AUTO EXPLORE + DUNGEON LOOP
--- (FULL VERSION 100% - INVENTORY POTION AUTO CLICKER)
+-- (FULL VERSION 100% - DIRECT SLOT 4 PRESS FIX)
 -- ================================================
 
 local Players = game:GetService("Players")
@@ -1258,11 +1258,11 @@ task.spawn(function()
 end)
 
 -- ================================================
--- AUTO HEAL (INVENTORY UI POTION CLICK FIX)
+-- AUTO HEAL (SOLVED KEYBOARD + TOUCH EVENT SLOT 4)
 -- ================================================
 
-local HEAL_COOLDOWN = 5
-local HEAL_CHECK_INTERVAL = 1
+local HEAL_COOLDOWN = 3
+local HEAL_CHECK_INTERVAL = 0.5
 local lastHealTime = 0
 local isHealing = false
 
@@ -1277,7 +1277,7 @@ local function getDigimonHP()
             local currentHP = tonumber(cur)
             local maximumHP = tonumber(max)
 
-            if currentHP and maximumHP and maximumHP > 100 and currentHP <= maximumHP then
+            if currentHP and maximumHP and maximumHP > 50 and currentHP <= maximumHP then
                 return currentHP, maximumHP
             end
         end
@@ -1285,49 +1285,39 @@ local function getDigimonHP()
     return nil, nil
 end
 
-local function clickInventoryPotion()
-    local pGui = player:FindFirstChild("PlayerGui")
-    if not pGui then return false, "ไม่พบ PlayerGui" end
+local function triggerSlot4Potion()
+    -- 1. กดปุ่มคีย์บอร์ดเลข 4
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Four, false, game)
+        task.wait(0.05)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Four, false, game)
+    end)
 
-    -- ค้นหาปุ่มไอเทมยาในหน้าต่างกระเป๋า (Item Inventory) ที่ตรงกับคำว่า Healing หรือ Potion
-    local potionBtn = nil
-    for _, obj in ipairs(pGui:GetDescendants()) do
-        if (obj:IsA("TextButton") or obj:IsA("ImageButton") or obj:IsA("GuiButton")) and obj.Visible then
-            local name = obj.Name:lower()
-            -- ตรวจสอบชื่อปุ่มหรือข้อความข้างในว่ามียาฟื้นฟูหรือไม่
-            if name:find("healing") or name:find("potion") or name:find("hp") then
-                potionBtn = obj
-                break
-            end
-            -- ตรวจสอบจาก TextLabel ย่อย
-            for _, child in ipairs(obj:GetDescendants()) do
-                if child:IsA("TextLabel") then
-                    local t = child.Text:lower()
-                    if t:find("healing") or t:find("potion") then
-                        potionBtn = obj
-                        break
-                    end
+    -- 2. ค้นหาองค์ประกอบ UI ช่อง 4 ทั้งหมดแล้วยิง Activated / MouseButton1Click
+    local pGui = player:FindFirstChild("PlayerGui")
+    if pGui then
+        for _, obj in ipairs(pGui:GetDescendants()) do
+            if (obj:IsA("GuiButton") or obj:IsA("TextButton") or obj:IsA("ImageButton")) and obj.Visible then
+                local objName = obj.Name:lower()
+                local parentName = obj.Parent and obj.Parent.Name:lower() or ""
+                
+                if objName == "4" or objName:find("slot4") or parentName:find("slot4") or parentName:find("move4") then
+                    fireButton(obj)
+                    pcall(function()
+                        if obj.AbsolutePosition and obj.AbsoluteSize then
+                            local cx = obj.AbsolutePosition.X + (obj.AbsoluteSize.X / 2)
+                            local cy = obj.AbsolutePosition.Y + (obj.AbsoluteSize.Y / 2)
+                            VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+                            task.wait(0.03)
+                            VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
+                        end
+                    end)
                 end
             end
-            if potionBtn then break end
         end
     end
 
-    if potionBtn then
-        fireButton(potionBtn)
-        pcall(function()
-            if potionBtn.AbsolutePosition and potionBtn.AbsoluteSize then
-                local cx = potionBtn.AbsolutePosition.X + (potionBtn.AbsoluteSize.X / 2)
-                local cy = potionBtn.AbsolutePosition.Y + (potionBtn.AbsoluteSize.Y / 2)
-                VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
-                task.wait(0.05)
-                VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
-            end
-        end)
-        return true, "กดใช้ยาจากกระเป๋าสำเร็จ"
-    end
-
-    return false, "ไม่พบปุ่มยาในหน้าต่างกระเป๋า (โปรดเปิดหน้าต่าง Item ทิ้งไว้ หรือตรวจสอบว่ามียาอยู่)"
+    return true, "ส่งคำสั่งกดช่อง 4 เรียบร้อย"
 end
 
 task.spawn(function()
@@ -1344,12 +1334,8 @@ task.spawn(function()
                 isHealing = true
                 lastHealTime = tick()
 
-                local used, result = clickInventoryPotion()
-                if used then
-                    sendNotification("Auto Heal", result .. " | HP ขาด " .. math.floor(missingHP))
-                else
-                    warn("[Auto Heal] " .. result)
-                end
+                local used, result = triggerSlot4Potion()
+                sendNotification("Auto Heal", result .. " | HP ขาด " .. math.floor(missingHP))
                 isHealing = false
             end)
 
@@ -1971,7 +1957,7 @@ task.spawn(function()
 
                                 if ok then
                                     local distance = (enemyPos - myPos).Magnitude
-                                    if distance < targetDistance then
+                                    if distance < targetDistance me
                                         target = enemy
                                         targetDistance = distance
                                     end
