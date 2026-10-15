@@ -1,7 +1,7 @@
-print("[Digimon Era] SCRIPT STARTED - AUTO EQUIP POTION FROM BACKPACK FIX")
+print("[Digimon Era] SCRIPT STARTED - INVENTORY ITEM AUTO HEAL FIX")
 -- ================================================
 -- DIGIMON ERA AUTO FARM + AUTO FEED + AUTO EXPLORE + DUNGEON LOOP
--- (FULL VERSION 100% - DIRECT BACKPACK POTION ACTIVATION)
+-- (FULL VERSION 100% - INVENTORY POTION AUTO CLICKER)
 -- ================================================
 
 local Players = game:GetService("Players")
@@ -1258,7 +1258,7 @@ task.spawn(function()
 end)
 
 -- ================================================
--- AUTO HEAL (DIRECT BACKPACK POTION ACTIVATION + UI HYBRID)
+-- AUTO HEAL (INVENTORY UI POTION CLICK FIX)
 -- ================================================
 
 local HEAL_COOLDOWN = 5
@@ -1285,80 +1285,49 @@ local function getDigimonHP()
     return nil, nil
 end
 
-local function clickSlot4Potion()
-    local character = player.Character
-    local backpack = player:FindFirstChild("Backpack")
+local function clickInventoryPotion()
+    local pGui = player:FindFirstChild("PlayerGui")
+    if not pGui then return false, "ไม่พบ PlayerGui" end
 
-    -- 1. ลำดับแรก: ดึงไอเทมยาฟื้นฟูตรงจาก Backpack ขึ้นมาถือและกดใช้ทันที (ไม่ต้องพึ่ง UI Hotbar)
-    if character and backpack then
-        local foundPotion = nil
-
-        -- ตรวจหารายชื่อไอเทมประเภทเพิ่ม HP/Potion ทุกประเภท
-        for _, item in ipairs(backpack:GetChildren()) do
-            if item:IsA("Tool") or item:IsA("HopperBin") then
-                local itemName = item.Name:lower()
-                if itemName:find("heal") or itemName:find("potion") or itemName:find("drug") or itemName:find("hp") or itemName:find("recovery") or itemName:find("medicine") then
-                    foundPotion = item
-                    break
-                end
+    -- ค้นหาปุ่มไอเทมยาในหน้าต่างกระเป๋า (Item Inventory) ที่ตรงกับคำว่า Healing หรือ Potion
+    local potionBtn = nil
+    for _, obj in ipairs(pGui:GetDescendants()) do
+        if (obj:IsA("TextButton") or obj:IsA("ImageButton") or obj:IsA("GuiButton")) and obj.Visible then
+            local name = obj.Name:lower()
+            -- ตรวจสอบชื่อปุ่มหรือข้อความข้างในว่ามียาฟื้นฟูหรือไม่
+            if name:find("healing") or name:find("potion") or name:find("hp") then
+                potionBtn = obj
+                break
             end
-        end
-
-        if not foundPotion then
-            for _, item in ipairs(character:GetChildren()) do
-                if item:IsA("Tool") then
-                    local itemName = item.Name:lower()
-                    if itemName:find("heal") or itemName:find("potion") or itemName:find("drug") or itemName:find("hp") or itemName:find("recovery") or itemName:find("medicine") then
-                        foundPotion = item
+            -- ตรวจสอบจาก TextLabel ย่อย
+            for _, child in ipairs(obj:GetDescendants()) do
+                if child:IsA("TextLabel") then
+                    local t = child.Text:lower()
+                    if t:find("healing") or t:find("potion") then
+                        potionBtn = obj
                         break
                     end
                 end
             end
-        end
-
-        if foundPotion then
-            pcall(function()
-                foundPotion.Parent = character
-                task.wait(0.08)
-                foundPotion:Activate()
-                task.wait(0.08)
-                foundPotion.Parent = backpack
-            end)
-            return true, "ใช้อยา (" .. foundPotion.Name .. ") จากกระเป๋าเรียบร้อย"
+            if potionBtn then break end
         end
     end
 
-    -- 2. สำรอง: หากไม่เจอยาในกระเป๋า ให้ลองคลิกปุ่มสล็อต 4 บน UI (ทั้งแบบ PC และ Mobile)
-    local pGui = player:FindFirstChild("PlayerGui")
-    if pGui then
-        local slot4Btn = nil
-
-        for _, obj in ipairs(pGui:GetDescendants()) do
-            if (obj:IsA("TextButton") or obj:IsA("ImageButton") or obj:IsA("GuiButton")) and obj.Visible then
-                local name = obj.Name:lower()
-                local parentName = obj.Parent and obj.Parent.Name:lower() or ""
-
-                if name == "4" or name:find("slot4") or name:find("move4") or parentName:find("move4") or name == "quickbutton" then
-                    slot4Btn = obj
-                    break
-                end
+    if potionBtn then
+        fireButton(potionBtn)
+        pcall(function()
+            if potionBtn.AbsolutePosition and potionBtn.AbsoluteSize then
+                local cx = potionBtn.AbsolutePosition.X + (potionBtn.AbsoluteSize.X / 2)
+                local cy = potionBtn.AbsolutePosition.Y + (potionBtn.AbsoluteSize.Y / 2)
+                VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
+                task.wait(0.05)
+                VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
             end
-        end
-
-        if slot4Btn then
-            fireButton(slot4Btn)
-            return true, "คลิกปุ่ม UI สล็อต 4 สำเร็จ"
-        end
+        end)
+        return true, "กดใช้ยาจากกระเป๋าสำเร็จ"
     end
 
-    -- 3. สำรองสุดท้าย: กดปุ่มคีย์บอร์ดเลข 4
-    pcall(function()
-        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Four, false, game)
-        task.wait(0.05)
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Four, false, game)
-    end)
-
-    return false, "ไม่พบไอเทมยาในกระเป๋า (โปรดตรวจสอบว่ามียา Potion พกติดตัวอยู่หรือไม่)"
+    return false, "ไม่พบปุ่มยาในหน้าต่างกระเป๋า (โปรดเปิดหน้าต่าง Item ทิ้งไว้ หรือตรวจสอบว่ามียาอยู่)"
 end
 
 task.spawn(function()
@@ -1375,7 +1344,7 @@ task.spawn(function()
                 isHealing = true
                 lastHealTime = tick()
 
-                local used, result = clickSlot4Potion()
+                local used, result = clickInventoryPotion()
                 if used then
                     sendNotification("Auto Heal", result .. " | HP ขาด " .. math.floor(missingHP))
                 else
