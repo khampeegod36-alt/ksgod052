@@ -1257,15 +1257,22 @@ task.spawn(function()
     end
 end)
 
+
 -- ================================================
--- AUTO HEAL (FIXED SLOT 4 TRIGGER)
+-- AUTO HEAL - SINGLE HEAL POTION S
+-- Auto Equip + Slot 4 + PC/Mobile
 -- ================================================
 
 local HEAL_COOLDOWN = 3
 local HEAL_CHECK_INTERVAL = 0.5
 local lastHealTime = 0
+local lastEquipAttempt = 0
 local isHealing = false
+local isEquipping = false
 
+local HEAL_ITEM_NAME = "Single Heal Potion S"
+
+-- ค้นหา HP จาก TextLabel ที่แสดง current/max
 local function getDigimonHP()
     local pGui = player:FindFirstChild("PlayerGui")
     if not pGui then return nil, nil end
@@ -1277,57 +1284,130 @@ local function getDigimonHP()
             local currentHP = tonumber(cur)
             local maximumHP = tonumber(max)
 
-            if currentHP and maximumHP and maximumHP > 50 and currentHP <= maximumHP then
+            if currentHP and maximumHP
+                and maximumHP > 50
+                and currentHP <= maximumHP then
                 return currentHP, maximumHP
             end
         end
     end
+
     return nil, nil
 end
 
-local function triggerSlot4Potion()
-    -- 1. จำลองการกดปุ่มคีย์บอร์ดเลข 4
-    pcall(function()
-        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Four, false, game)
-        task.wait(0.05)
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Four, false, game)
-    end)
+-- ดึงปุ่มและสถานะ Equip/Remove
+local function getHealItemControls()
+    local pg = player:FindFirstChild("PlayerGui")
+    if not pg then return nil end
 
-    -- 2. ค้นหาและคลิกปุ่ม UI ช่อง 4 อย่างปลอดภัย (ไม่ใช้ .Activate())
-    local pGui = player:FindFirstChild("PlayerGui")
-    if pGui then
-        for _, obj in ipairs(pGui:GetDescendants()) do
-            if (obj:IsA("GuiButton") or obj:IsA("TextButton") or obj:IsA("ImageButton")) and obj.Visible then
-                local objName = obj.Name:lower()
-                local parentName = obj.Parent and obj.Parent.Name:lower() or ""
-                
-                if objName == "4" or objName:find("slot4") or parentName:find("slot4") or parentName:find("move4") then
-                    pcall(function()
-                        if firesignal then
-                            firesignal(obj.Activated)
-                            firesignal(obj.MouseButton1Click)
-                        end
-                    end)
-                    
-                    pcall(function()
-                        if obj.AbsolutePosition and obj.AbsoluteSize then
-                            local cx = obj.AbsolutePosition.X + (obj.AbsoluteSize.X / 2)
-                            local cy = obj.AbsolutePosition.Y + (obj.AbsoluteSize.Y / 2)
-                            VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, true, game, 1)
-                            task.wait(0.03)
-                            VirtualInputManager:SendMouseButtonEvent(cx, cy, 0, false, game, 1)
-                        end
-                    end)
-                end
-            end
-        end
-    end
+    local main = pg:FindFirstChild("Main")
+    local itemBox = main and main:FindFirstChild("ItemBox")
+    if not itemBox then return nil end
 
-    return true, "ส่งคำสั่งกดช่อง 4 เรียบร้อย"
+    local scrolling = itemBox:FindFirstChild("ScrollingFrame")
+    local item = scrolling and scrolling:FindFirstChild(HEAL_ITEM_NAME)
+
+    local info = itemBox:FindFirstChild("InfoFrame")
+    local equip = info and info:FindFirstChild("ItemEquip")
+    local modeName = equip and equip:FindFirstChild("ModeName")
+
+    return {
+        itemBox = itemBox,
+        item = item,
+        equip = equip,
+        modeName = modeName,
+    }
 end
 
+-- เลือกยาและ Equip เฉพาะเมื่อสถานะเป็น Equip
+local function ensureHealPotionEquipped()
+    if isEquipping then return false end
+    if tick() - lastEquipAttempt < 2 then return false end
+
+    local controls = getHealItemControls()
+    if not controls or not controls.item or not controls.equip
+        or not controls.modeName then
+        return false
+    end
+
+    -- ถ้าเป็น Remove แปลว่าใส่ยาแล้ว ห้ามกด Equip ซ้ำ
+    if controls.modeName.Text == "Remove" then
+        return true
+    end
+
+    if controls.modeName.Text ~= "Equip" then
+        return false
+    end
+
+    isEquipping = true
+    lastEquipAttempt = tick()
+
+    local ok, err = pcall(function()
+        -- เลือกรายการยาเพื่อให้ InfoFrame แสดงยาตัวนี้
+        if controls.item:IsA("GuiButton") then
+            fireButton(controls.item)
+        end
+
+        task.wait(0.2)
+
+        -- ตรวจสถานะอีกครั้งหลังเลือกยา
+        local updated = getHealItemControls()
+        if updated and updated.modeName
+            and updated.modeName.Text == "Equip"
+            and updated.equip.Visible then
+            fireButton(updated.equip)
+        end
+    end)
+
+    task.wait(0.25)
+
+    local updated = getHealItemControls()
+    local equipped = updated
+        and updated.modeName
+        and updated.modeName.Text == "Remove"
+
+    isEquipping = false
+
+    if not ok then
+        warn("[Auto Heal] Equip error:", err)
+    end
+
+    if equipped then
+        print("[Auto Heal] Potion equipped")
+        return true
+    end
+
+    return false
+end
+
+-- ใช้ยาผ่าน HUD.QuickItem ที่ยืนยันตำแหน่งแล้ว
+local function triggerSlot4Potion()
+    local pg = player:FindFirstChild("PlayerGui")
+    local hud = pg and pg:FindFirstChild("HUD")
+    local quickItem = hud and hud:FindFirstChild("QuickItem")
+
+    if not quickItem or not quickItem:IsA("GuiButton") then
+        return false, "ไม่พบ HUD.QuickItem"
+    end
+
+    if not quickItem.Visible or not quickItem.Active then
+        return false, "ช่องยา 4 ยังไม่พร้อมใช้งาน"
+    end
+
+    local ok = pcall(function()
+        fireButton(quickItem)
+    end)
+
+    if ok then
+        return true, "ส่งคำสั่งใช้ยาในช่อง 4"
+    end
+
+    return false, "กดช่องยา 4 ไม่สำเร็จ"
+end
+
+-- วนทำงาน Auto Heal
 task.spawn(function()
-    while screenGui.Parent do
+    while screenGui and screenGui.Parent do
         if AUTO_HEAL and not isHealing then
             local ok, err = pcall(function()
                 local curHP, maxHP = getDigimonHP()
@@ -1338,10 +1418,30 @@ task.spawn(function()
                 if tick() - lastHealTime < HEAL_COOLDOWN then return end
 
                 isHealing = true
+
+                -- ใส่ยาก่อน หากยังไม่ได้ใส่
+                local equipped = ensureHealPotionEquipped()
+                if not equipped then
+                    isHealing = false
+                    return
+                end
+
+                -- ใช้ยาเฉพาะเมื่อสถานะเป็น Remove
+                local controls = getHealItemControls()
+                if not controls or not controls.modeName
+                    or controls.modeName.Text ~= "Remove" then
+                    isHealing = false
+                    return
+                end
+
                 lastHealTime = tick()
 
                 local used, result = triggerSlot4Potion()
-                sendNotification("Auto Heal", result .. " | HP ขาด " .. math.floor(missingHP))
+                sendNotification(
+                    "Auto Heal",
+                    result .. " | HP ขาด " .. math.floor(missingHP)
+                )
+
                 isHealing = false
             end)
 
@@ -1350,6 +1450,7 @@ task.spawn(function()
                 warn("[Auto Heal] Error:", err)
             end
         end
+
         task.wait(HEAL_CHECK_INTERVAL)
     end
 end)
