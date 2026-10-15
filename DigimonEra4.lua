@@ -1865,8 +1865,8 @@ local function selectForestAndStart()
     end
 
     -- เลือกแผนที่
-    local mapList = chooseMap:FindFirstChild("MapChooseScrolling")
-    local mapButton = mapList and mapList:FindFirstChild(mapName)
+    local mapList = chooseMap:FindFirstChild("MapChooseScrolling", true)
+    local mapButton = mapList and mapList:FindFirstChild(mapName, true)
 
     if not mapButton or not mapButton:IsA("GuiButton") then
         warn("[Dungeon Loop] ไม่พบปุ่มแผนที่:", mapName)
@@ -1890,15 +1890,19 @@ local function selectForestAndStart()
         return false
     end
 
-    -- ใช้ Name ของปุ่ม เพราะ Text ว่าง
+    -- ตรวจทั้ง Name และ Text ของปุ่ม โดยคงโครงสร้างเดิม
     local levelButton
+    local wantedLevel = tostring(selectedLevel):gsub("%s+", ""):lower()
 
     for _, obj in ipairs(levelList:GetDescendants()) do
-        if obj:IsA("GuiButton")
-            and obj.Visible
-            and obj.Name == selectedLevel then
-            levelButton = obj
-            break
+        if obj:IsA("GuiButton") and obj.Visible then
+            local nameMatch = tostring(obj.Name):gsub("%s+", ""):lower() == wantedLevel
+            local textMatch = obj:IsA("TextButton")
+                and tostring(obj.Text):gsub("%s+", ""):lower() == wantedLevel
+            if nameMatch or textMatch then
+                levelButton = obj
+                break
+            end
         end
     end
 
@@ -1915,8 +1919,9 @@ local function selectForestAndStart()
     task.wait(0.5)
 
     -- กด Start
-    local mapInfo = main:FindFirstChild("MapInfo")
-    local startButton = mapInfo and mapInfo:FindFirstChild("StartButton")
+    local mapInfo = chooseMap:FindFirstChild("MapInfo", true)
+        or main:FindFirstChild("MapInfo", true)
+    local startButton = mapInfo and mapInfo:FindFirstChild("StartButton", true)
 
     if not startButton then
         warn("[Dungeon Loop] ไม่พบ MapInfo.StartButton")
