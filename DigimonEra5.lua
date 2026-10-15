@@ -1940,4 +1940,102 @@ task.spawn(function()
                 local foundDrop = false
 
                 if not foundChest then
-                    foundDrop = findAndTeleportToDrop(
+                    foundDrop = findAndTeleportToDrop(rootPart)
+                end
+
+                if not foundChest and not foundDrop
+                    and AUTO_FARM and enemiesFolder then
+
+                    local target, targetDistance = nil, math.huge
+                    local myPos = rootPart.Position
+
+                    for _, enemy in ipairs(enemiesFolder:GetChildren()) do
+                        if enemy:IsA("Model") and enemy.Parent == enemiesFolder
+                            and not visited[enemy] then
+
+                            local enemyHumanoid =
+                                enemy:FindFirstChildOfClass("Humanoid")
+
+                            if not enemyHumanoid or enemyHumanoid.Health > 0 then
+                                local ok, enemyPos = pcall(function()
+                                    return enemy:GetPivot().Position
+                                end)
+
+                                if ok then
+                                    local distance = (enemyPos - myPos).Magnitude
+                                    if distance < targetDistance then
+                                        target = enemy
+                                        targetDistance = distance
+                                    end
+                                end
+                            end
+                        end
+                    end
+
+                    if target and AUTO_FARM then
+                        visited[target] = true
+
+                        sendNotification(
+                            "เดินไปตีมอนสเตอร์",
+                            target.Name
+                        )
+
+                        local started = tick()
+                        local targetRoomKey = roomKey
+                        local pathFailed = false
+
+                        while AUTO_FARM and not AUTO_FEED_BUSY
+                            and target.Parent == enemiesFolder
+                            and tick() - started < MAX_WALK_TIME do
+
+                            local currentRoomKey = getCurrentRoomKey()
+                            if (targetRoomKey and currentRoomKey
+                                and currentRoomKey ~= targetRoomKey)
+                                or target.Parent ~= enemiesFolder then
+                                table.clear(visited)
+                                break
+                            end
+
+                            local enemyHumanoid =
+                                target:FindFirstChildOfClass("Humanoid")
+
+                            if enemyHumanoid and enemyHumanoid.Health <= 0 then
+                                break
+                            end
+
+                            local ok, targetPos = pcall(function()
+                                return target:GetPivot().Position
+                            end)
+                            if not ok then break end
+
+                            local distance = (targetPos - rootPart.Position).Magnitude
+
+                            if distance <= ARRIVAL_DISTANCE then
+                                pcall(function()
+                                    VirtualUser:ClickButton1(Vector2.new())
+                                end)
+                                task.wait(0.2)
+                            else
+                                local reached = walkToTarget(character, humanoid, targetPos)
+                                if not reached then
+                                    pathFailed = true
+                                    break
+                                end
+                            end
+                        end
+
+                        if pathFailed then
+                            visited[target] = true
+                            sendNotification("Auto Farm", "ไปไม่ถึงเป้าหมาย ข้ามไปหาม่อนตัวอื่น")
+                        end
+                    elseif AUTO_FARM then
+                        table.clear(visited)
+                        task.wait(1)
+                    end
+                end
+            end
+        end
+
+        task.wait(0.2)
+    end
+end)
