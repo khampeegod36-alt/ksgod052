@@ -1,7 +1,7 @@
-print("[Digimon Era] SCRIPT STARTED - DUAL UI AUTO HEAL FIX")
+print("[Digimon Era] SCRIPT STARTED - PERMANENT HYBRID AUTO HEAL")
 -- ================================================
 -- DIGIMON ERA AUTO FARM + AUTO FEED + AUTO EXPLORE + DUNGEON LOOP
--- (FULL VERSION - HYBRID PC & MOBILE AUTO HEAL)
+-- (FULL VERSION - FULL AUTOMATIC MOBILE/PC HYBRID AUTO HEAL)
 -- ================================================
 
 local Players = game:GetService("Players")
@@ -14,10 +14,7 @@ local CoreGui = game:GetService("CoreGui")
 local player = Players.LocalPlayer
 
 -- CONFIG
-local DIGIMON_SCRIPT_URL =
-    "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra5.lua"
-
-local UI_NAME ="DigimonEra5_MultiUI"
+local UI_NAME = "DigimonEra5_MultiUI"
 local MIN_DISTANCE = 30
 local ARRIVAL_DISTANCE = 4
 local MAX_WALK_TIME = 10
@@ -252,7 +249,7 @@ local function fireButton(btn)
 end
 
 -- ================================================
--- AUTO HEAL (DUAL CONTROLLER HYBRID SYSTEM)
+-- AUTO HEAL (PERMANENT HYBRID PC + MOBILE AUTO HEAL)
 -- ================================================
 
 local HEAL_COOLDOWN = 5
@@ -283,61 +280,42 @@ local function clickSlot4Potion()
     local pGui = player:FindFirstChild("PlayerGui")
     if not pGui then return false, "ไม่พบ PlayerGui" end
 
-    local slot4Btn = nil
+    local success = false
     local hud = pGui:FindFirstChild("HUD")
 
-    -- 1. ตรวจสอบว่าเปิด UI แบบ PC_Controller หรือไม่
+    -- 1. ยิงคำสั่งสำหรับฝั่ง Mobile_Controller
+    local mobileController = hud and hud:FindFirstChild("Mobile_Controller")
+    if mobileController and mobileController.Visible then
+        for _, obj in ipairs(mobileController:GetDescendants()) do
+            if obj.Name == "QuickButton" and obj.Visible then
+                if fireButton(obj) then success = true end
+            end
+        end
+    end
+
+    -- 2. ยิงคำสั่งสำหรับฝั่ง PC_Controller
     local pcController = hud and hud:FindFirstChild("PC_Controller")
     if pcController and pcController.Visible then
         local moveFrame = pcController:FindFirstChild("MoveFrame")
-        if moveFrame then
-            local move4 = moveFrame:FindFirstChild("Move4")
-            if move4 then
-                slot4Btn = move4:FindFirstChild("QuickButton") or move4
-            end
+        local move4 = moveFrame and moveFrame:FindFirstChild("Move4")
+        if move4 then
+            local btn = move4:FindFirstChild("QuickButton") or move4
+            if fireButton(btn) then success = true end
         end
 
-        -- ส่งคำสั่งกดคีย์บอร์ดเลข 4 สำหรับ PC
         pcall(function()
             VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Four, false, game)
             task.wait(0.05)
             VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Four, false, game)
+            success = true
         end)
     end
 
-    -- 2. ตรวจสอบว่าเปิด UI แบบ Mobile_Controller หรือไม่
-    local mobileController = hud and hud:FindFirstChild("Mobile_Controller")
-    if not slot4Btn and mobileController and mobileController.Visible then
-        local moveFrame = mobileController:FindFirstChild("MoveFrame")
-        if moveFrame then
-            for _, moveObj in ipairs(moveFrame:GetChildren()) do
-                local qBtn = moveObj:FindFirstChild("QuickButton")
-                if qBtn then
-                    slot4Btn = qBtn:FindFirstChild("QuickButton") or qBtn
-                end
-            end
-        end
+    if success then
+        return true, "กดใช้งานยาผ่าน Hotbar UI สำเร็จ"
     end
 
-    -- 3. หากพบปุ่ม GUI สั่งยิงคลิกที่ตัวปุ่มโดยตรง
-    if slot4Btn then
-        fireButton(slot4Btn)
-
-        pcall(function()
-            if slot4Btn.AbsolutePosition and slot4Btn.AbsoluteSize then
-                local x = slot4Btn.AbsolutePosition.X + (slot4Btn.AbsoluteSize.X / 2)
-                local y = slot4Btn.AbsolutePosition.Y + (slot4Btn.AbsoluteSize.Y / 2) + 36
-
-                VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
-                task.wait(0.05)
-                VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
-            end
-        end)
-
-        return true, "กดใช้งานยาผ่าน Hotbar Slot 4 สำเร็จ"
-    end
-
-    -- 4. สำรอง: เรียกใช้ยา Potion จาก Backpack โดยตรงหากไม่พบปุ่ม
+    -- 3. สำรอง: ดึงไอเทมยาจาก Backpack หรือในตัวละครขึ้นมาสั่ง Activate ตรงๆ
     local character = player.Character
     local backpack = player:FindFirstChild("Backpack")
 
@@ -359,7 +337,7 @@ local function clickSlot4Potion()
         end
     end
 
-    return false, "ไม่พบสล็อตปุ่มยาหรือยาในกระเป๋า"
+    return false, "ไม่พบสล็อตยาหรือยาในกระเป๋า"
 end
 
 task.spawn(function()
@@ -487,3 +465,4 @@ task.spawn(function()
         task.wait(0.2)
     end
 end)
+```[cite: 3]
