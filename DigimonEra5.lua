@@ -1,7 +1,7 @@
-print("[Digimon Era] SCRIPT STARTED - FULL UNTRUNCATED VERSION")
+print("[Digimon Era] SCRIPT STARTED - DEEP SEARCH AUTO HEAL FIX")
 -- ================================================
 -- DIGIMON ERA AUTO FARM + AUTO FEED + AUTO EXPLORE + DUNGEON LOOP
--- (FULL VERSION 100% - FIXED HYBRID PC/MOBILE AUTO HEAL)
+-- (FULL VERSION - DEEP SEARCH AUTO HEAL FOR ALL POTIONS)
 -- ================================================
 
 local Players = game:GetService("Players")
@@ -1258,7 +1258,7 @@ task.spawn(function()
 end)
 
 -- ================================================
--- AUTO HEAL (DUAL CONTROLLER HYBRID SYSTEM)
+-- AUTO HEAL (DEEP SEARCH & UNIVERSAL EXECUTION)
 -- ================================================
 
 local HEAL_COOLDOWN = 5
@@ -1292,61 +1292,80 @@ local function clickSlot4Potion()
     local success = false
     local hud = pGui:FindFirstChild("HUD")
 
-    -- 1. ยิงคำสั่งสำหรับฝั่ง Mobile_Controller
-    local mobileController = hud and hud:FindFirstChild("Mobile_Controller")
-    if mobileController and mobileController.Visible then
-        for _, obj in ipairs(mobileController:GetDescendants()) do
-            if obj.Name == "QuickButton" and obj.Visible then
-                if fireButton(obj) then success = true end
-            end
-        end
-    end
+    -- 1. ตรวจค้นและคลิกทุกปุ่มใน UI ที่เกี่ยวข้องกับยา/สล็อตฟื้นฟู (Mobile/PC)
+    if hud then
+        for _, obj in ipairs(hud:GetDescendants()) do
+            if (obj:IsA("ImageButton") or obj:IsA("TextButton") or obj:IsA("GuiButton")) and obj.Visible then
+                local objName = obj.Name:lower()
+                local parentName = obj.Parent and obj.Parent.Name:lower() or ""
 
-    -- 2. ยิงคำสั่งสำหรับฝั่ง PC_Controller
-    local pcController = hud and hud:FindFirstChild("PC_Controller")
-    if pcController and pcController.Visible then
-        local moveFrame = pcController:FindFirstChild("MoveFrame")
-        local move4 = moveFrame and moveFrame:FindFirstChild("Move4")
-        if move4 then
-            local btn = move4:FindFirstChild("QuickButton") or move4
-            if fireButton(btn) then success = true end
-        end
-
-        pcall(function()
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Four, false, game)
-            task.wait(0.05)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Four, false, game)
-            success = true
-        end)
-    end
-
-    if success then
-        return true, "กดใช้งานยาผ่าน Hotbar UI สำเร็จ"
-    end
-
-    -- 3. สำรอง: ดึงไอเทมยาจาก Backpack หรือในตัวละครขึ้นมาสั่ง Activate ตรงๆ
-    local character = player.Character
-    local backpack = player:FindFirstChild("Backpack")
-
-    if character and backpack then
-        for _, item in ipairs(backpack:GetChildren()) do
-            if item:IsA("Tool") then
-                local itemName = item.Name:lower()
-                if itemName:find("heal") or itemName:find("potion") or itemName:find("drug") or itemName:find("hp") then
-                    pcall(function()
-                        item.Parent = character
-                        task.wait(0.05)
-                        item:Activate()
-                        task.wait(0.05)
-                        item.Parent = backpack
-                    end)
-                    return true, "ใช้อยาจาก Backpack สำเร็จ"
+                -- ค้นหาปุ่มประเภท QuickButton, Slot4, Potion, Move4
+                if objName == "quickbutton" or objName:find("slot") or objName:find("move4") or objName:find("potion") or objName:find("heal") or parentName:find("move4") then
+                    if fireButton(obj) then
+                        success = true
+                    end
                 end
             end
         end
     end
 
-    return false, "ไม่พบสล็อตยาหรือยาในกระเป๋า"
+    -- 2. ส่งคีย์บอร์ดจำลองสำหรับ PC (กดปุ่ม 1, 2, 3, 4, Q, E)
+    pcall(function()
+        local keys = {Enum.KeyCode.Four, Enum.KeyCode.Three, Enum.KeyCode.Two, Enum.KeyCode.One, Enum.KeyCode.Q, Enum.KeyCode.E}
+        for _, key in ipairs(keys) do
+            VirtualInputManager:SendKeyEvent(true, key, false, game)
+            task.wait(0.02)
+            VirtualInputManager:SendKeyEvent(false, key, false, game)
+        end
+    end)
+
+    if success then
+        return true, "กดใช้งานยาผ่าน Hotbar UI สำเร็จ"
+    end
+
+    -- 3. ค้นหาและดึงไอเทมยาจากกระเป๋า (Backpack) มาใช้โดยตรงทันที
+    local character = player.Character
+    local backpack = player:FindFirstChild("Backpack")
+
+    if character and backpack then
+        local foundItem = nil
+
+        -- ค้นหาทั้งใน Backpack และตัวละครที่ถืออยู่
+        for _, item in ipairs(backpack:GetChildren()) do
+            if item:IsA("Tool") then
+                local itemName = item.Name:lower()
+                if itemName:find("heal") or itemName:find("potion") or itemName:find("drug") or itemName:find("hp") or itemName:find("recovery") or itemName:find("medicine") then
+                    foundItem = item
+                    break
+                end
+            end
+        end
+
+        if not foundItem then
+            for _, item in ipairs(character:GetChildren()) do
+                if item:IsA("Tool") then
+                    local itemName = item.Name:lower()
+                    if itemName:find("heal") or itemName:find("potion") or itemName:find("drug") or itemName:find("hp") or itemName:find("recovery") or itemName:find("medicine") then
+                        foundItem = item
+                        break
+                    end
+                end
+            end
+        end
+
+        if foundItem then
+            pcall(function()
+                foundItem.Parent = character
+                task.wait(0.05)
+                foundItem:Activate()
+                task.wait(0.05)
+                foundItem.Parent = backpack
+            end)
+            return true, "ใช้อยา (" .. foundItem.Name .. ") จาก Backpack สำเร็จ"
+        end
+    end
+
+    return false, "ไม่พบยาใน Hotbar หรือกระเป๋า (พกยาไว้ในตัวด้วยครับ)"
 end
 
 task.spawn(function()
