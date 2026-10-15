@@ -746,44 +746,6 @@ enableFarmModes = function()
     end
 end
 
--- Helper function สำหรับสั่ง Fire Button
-local function fireButton(btn)
-    if not btn or not btn.Parent or not btn.Visible then
-        return false
-    end
-
-    local fired = false
-
-    pcall(function()
-        if getconnections then
-            for _, conn in ipairs(getconnections(btn.Activated)) do
-                if conn.Enabled ~= false then
-                    pcall(function() conn:Fire() end)
-                    fired = true
-                end
-            end
-            for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
-                if conn.Enabled ~= false then
-                    pcall(function() conn:Fire() end)
-                    fired = true
-                end
-            end
-        end
-    end)
-
-    if not fired then
-        pcall(function()
-            if firesignal then
-                firesignal(btn.Activated)
-                firesignal(btn.MouseButton1Click)
-                fired = true
-            end
-        end)
-    end
-
-    return fired
-end
-
 -- ================================================
 -- AUTO FEED
 -- ================================================
@@ -842,6 +804,41 @@ local function getCaptureMain()
     local billboard = pGui and pGui:FindFirstChild("CaptureBillboard")
 
     return billboard and billboard:FindFirstChild("MainFrame")
+end
+
+local function fireButton(btn)
+    if not btn or not btn.Parent or not btn.Visible then
+        return false
+    end
+
+    local fired = false
+
+    pcall(function()
+        if getconnections then
+            for _, conn in ipairs(getconnections(btn.Activated)) do
+                if conn.Enabled ~= false then
+                    local ok = pcall(function()
+                        conn:Fire()
+                    end)
+
+                    if ok then
+                        fired = true
+                    end
+                end
+            end
+        end
+    end)
+
+    if not fired then
+        pcall(function()
+            if firesignal then
+                firesignal(btn.Activated)
+                fired = true
+            end
+        end)
+    end
+
+    return fired
 end
 
 local function teleportToCapture(capture, rootPart)
@@ -1316,13 +1313,18 @@ task.spawn(function()
 end)
 
 -- ================================================
--- AUTO HEAL (PHYSICAL VIRTUAL MOUSE CLICK ON SLOT 4)
+-- AUTO HEAL (AUTO OPEN BAG + EQUIP + USE)
 -- ================================================
 
 local HEAL_COOLDOWN = 5
 local HEAL_CHECK_INTERVAL = 1
 local lastHealTime = 0
 local isHealing = false
+
+local POTION_PRIORITY = {
+    "Single Heal Potion M",
+    "Single Heal Potion S"
+}
 
 local function getDigimonHP()
     local pGui = player:FindFirstChild("PlayerGui")
@@ -1347,62 +1349,817 @@ local function getDigimonHP()
     return nil, nil
 end
 
--- สั่งยิงคลิกจำลองตรงพิกัดปุ่ม GUI Slot 4 บนหน้าจอ
-local function clickSlot4Potion()
+local function equipAndUsePotion()
     local pGui = player:FindFirstChild("PlayerGui")
-    if not pGui then return false, "ไม่พบ PlayerGui" end
+    local character = player.Character
+    local backpack = player:FindFirstChildOfClass("Backpack")
 
-    local slot4Btn = nil
+    if not character then return false, "ไม่พบตัวละคร" end
 
-    -- ค้นหาปุ่ม Slot 4 จาก UI ทั้งหมดใน PlayerGui
-    for _, obj in ipairs(pGui:GetDescendants()) do
-        if (obj:IsA("TextButton") or obj:IsA("ImageButton")) and obj.Visible then
-            local nameLower = obj.Name:lower()
-            
-            -- ตรวจสอบชื่อของปุ่ม Slot4
-            if nameLower == "slot4" or nameLower == "slot_4" or nameLower == "4" or nameLower:find("skill4") then
-                slot4Btn = obj
-                break
+    -- 1. เช็คใน Backpack หรือ Character ก่อนว่ามียาพร้อมใช้ไหม
+    for _, potionName in ipairs(POTION_PRIORITY) do
+        local tool = (backpack and backpack:FindFirstChild(potionName)) 
+            or (character and character:FindFirstChild(potionName))
+
+        if tool and tool:IsA("Tool") then
+            if tool.Parent == backpack then
+                local humanoid = character:FindFirstChildOfClass("Humanoid")
+                if humanoid then
+                    pcall(function() humanoid:EquipTool(tool) end)
+                    task.wait(0.15)
+                end
             end
+            pcall(function() tool:Activate() end)
+            return true, tool.Name
+        end
+    end
 
-            -- ตรวจสอบตัวเลขที่แสดงกำกับปุ่ม
-            local numLabel = obj:FindFirstChild("Number", true) or obj:FindFirstChild("Key", true) or obj:FindFirstChild("TextLabel", true)
-            if numLabel and numLabel:IsA("TextLabel") and numLabel.Text == "4" then
-                slot4Btn = obj
-                break
+    -- 2. ถ้าไม่มีในกระเป๋าหลัก ให้เปิดหน้าต่าง Item (Bag) ทางซ้ายมือขึ้นมาอัตโนมัติ
+    if pGui then
+        local hud = pGui:FindFirstChild("HUD")
+        local buttonsFrame = hud and hud:FindFirstChild("ButtonsFrame")
+        local itemBtn = buttonsFrame and (buttonsFrame:FindFirstChild("Item") or buttonsFrame:FindFirstChild("ItemButton"))
+        local main = pGui:FindFirstChild("Main")
+        local itemBox = main and main:FindFirstChild("ItemBox")
+
+        -- ถ้ายังไม่ได้เปิดกระเป๋า ให้กดปุ่มเปิด
+        if itemBtn and itemBox and not itemBox.Visible then
+            pcall(function() firesignal(itemBtn.MouseButton1Click or itemBtn.Activated) end)
+            task.wait(0.3)
+        end
+
+        -- ค้นหาและกดปุ่มไอเทมยาใน ScrollingFrame ของกระเป๋า
+        local scrolling = itemBox and itemBox:FindFirstChild("ScrollingFrame", true)
+        if scrolling then
+            for _, potionName in ipairs(POTION_PRIORITY) do
+                local itemButton = scrolling:FindFirstChild(potionName)
+                if itemButton and itemButton:IsA("GuiButton") then
+                    pcall(function() firesignal(itemButton.Activated) end)
+                    task.wait(0.2)
+
+                    -- กดปุ่ม Equip สีเขียว
+                    local infoFrame = itemBox:FindFirstChild("InfoFrame")
+                    local equipBtn = infoFrame and infoFrame:FindFirstChild("ItemEquip")
+                    if equipBtn and equipBtn:IsA("GuiButton") then
+                        pcall(function() firesignal(equipBtn.Activated) end)
+                        task.wait(0.3)
+
+                        -- ตรวจสอบหลังกด Equip แล้วหยิบมาใช้
+                        backpack = player:FindFirstChildOfClass("Backpack")
+                        local tool = backpack and backpack:FindFirstChild(potionName)
+                        if tool and tool:IsA("Tool") then
+                            local humanoid = character:FindFirstChildOfClass("Humanoid")
+                            if humanoid then
+                                pcall(function() humanoid:EquipTool(tool) end)
+                                task.wait(0.15)
+                            end
+                            pcall(function() tool:Activate() end)
+                            return true, potionName
+                        end
+                    end
+                end
+            end
+        end
+
+        -- ปิดหน้าต่างกระเป๋าเก็บไว้เหมือนเดิมหลังทำเสร็จ
+        if itemBox and itemBox.Visible and itemBtn then
+            pcall(function() firesignal(itemBtn.MouseButton1Click or itemBtn.Activated) end)
+        end
+    end
+
+    return false, "ไม่พบยา S หรือ M ในช่องกระเป๋า"
+end
+
+task.spawn(function()
+    while screenGui.Parent do
+        if AUTO_HEAL and not isHealing then
+            local ok, err = pcall(function()
+                local curHP, maxHP = getDigimonHP()
+
+                if not curHP or not maxHP then
+                    return
+                end
+
+                local missingHP = maxHP - curHP
+
+                if missingHP < HEAL_DROP_AMOUNT then
+                    return
+                end
+
+                if tick() - lastHealTime < HEAL_COOLDOWN then
+                    return
+                end
+
+                isHealing = true
+                lastHealTime = tick()
+
+                local used, result = equipAndUsePotion()
+
+                if used then
+                    sendNotification(
+                        "Auto Heal",
+                        "ดึงและใช้ " .. result
+                            .. " | HP ขาด " .. math.floor(missingHP)
+                    )
+                else
+                    warn("[Auto Heal] " .. result)
+                end
+
+                isHealing = false
+            end)
+
+            if not ok then
+                isHealing = false
+                warn("[Auto Heal] Error:", err)
+            end
+        end
+
+        task.wait(HEAL_CHECK_INTERVAL)
+    end
+end)
+
+-- ================================================
+-- AUTO CHEST
+-- ================================================
+
+local chestRetryAt = {}
+local CHEST_RETRY_COOLDOWN = 3
+local CHEST_ENEMY_CHECK_DISTANCE = 60
+
+local function findAndTeleportToChest(rootPart)
+    if not AUTO_CHEST or not rootPart then
+        return false
+    end
+
+    local closestChest, closestDist = nil, SEARCH_RADIUS
+    local now = tick()
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if (obj:IsA("Model") or obj:IsA("BasePart"))
+            and not openedChests[obj]
+            and (not chestRetryAt[obj] or now >= chestRetryAt[obj]) then
+
+            local name = obj.Name:lower()
+
+            if name:find("chest")
+                or name:find("rewardbox")
+                or name:find("treasure") then
+
+                local ok, pos = pcall(function()
+                    return obj:GetPivot().Position
+                end)
+
+                if ok then
+                    local dist = (pos - rootPart.Position).Magnitude
+
+                    if dist < closestDist then
+                        closestChest = obj
+                        closestDist = dist
+                    end
+                end
             end
         end
     end
 
-    if slot4Btn then
-        -- 1. ยิง Signal ภายใน GUI
-        fireButton(slot4Btn)
+    if not closestChest or not AUTO_CHEST then
+        return false
+    end
 
-        -- 2. จำลองการส่งคลิกเมาส์เสมือนตรงลงบนพิกัดตำแหน่งจริงของปุ่มบนหน้าจอ (Absolute Position Click)
-        pcall(function()
-            if slot4Btn.AbsolutePosition and slot4Btn.AbsoluteSize then
-                local centerPosX = slot4Btn.AbsolutePosition.X + (slot4Btn.AbsoluteSize.X / 2)
-                local centerPosY = slot4Btn.AbsolutePosition.Y + (slot4Btn.AbsoluteSize.Y / 2) + 36 -- ปรับออฟเซ็ต Topbar ของ Roblox
+    local chest = closestChest
 
-                VirtualInputManager:SendMouseButtonEvent(centerPosX, centerPosY, 0, true, game, 1)
-                task.wait(0.05)
-                VirtualInputManager:SendMouseButtonEvent(centerPosX, centerPosY, 0, false, game, 1)
+    local ok, chestPos = pcall(function()
+        return chest:GetPivot().Position
+    end)
+
+    if not ok then
+        chestRetryAt[chest] = tick() + CHEST_RETRY_COOLDOWN
+        return false
+    end
+
+    local digimons = workspace:FindFirstChild("Digimons")
+    local enemies = digimons and digimons:FindFirstChild("Enemies")
+
+    if enemies then
+        for _, enemy in ipairs(enemies:GetChildren()) do
+            if enemy:IsA("Model") then
+                local humanoid = enemy:FindFirstChildOfClass("Humanoid")
+
+                if humanoid and humanoid.Health > 0 then
+                    local enemyOk, enemyPos = pcall(function()
+                        return enemy:GetPivot().Position
+                    end)
+
+                    if enemyOk
+                        and (enemyPos - chestPos).Magnitude
+                            <= CHEST_ENEMY_CHECK_DISTANCE then
+
+                        chestRetryAt[chest] = tick() + CHEST_RETRY_COOLDOWN
+                        return false
+                    end
+                end
             end
+        end
+    end
+
+    sendNotification("Auto Chest", "กำลังลองเปิดหีบ...")
+
+    for i = 1, 12 do
+        if not AUTO_CHEST or not chest.Parent then
+            break
+        end
+
+        pcall(function()
+            rootPart.CFrame = CFrame.new(
+                chest:GetPivot().Position + Vector3.new(0, 0.5, 0)
+            )
         end)
 
-        return true, "จำลองคลิกเมาส์ที่ปุ่ม Slot 4 แล้ว"
+        for _, obj in ipairs(chest:GetDescendants()) do
+            if obj:IsA("ProximityPrompt") and obj.Enabled then
+                pcall(function()
+                    obj.RequiresLineOfSight = false
+                    obj.MaxActivationDistance = 500
+                    obj.HoldDuration = 0
+
+                    if fireproximityprompt then
+                        fireproximityprompt(obj)
+                    end
+                end)
+            end
+        end
+
+        task.wait(0.1)
     end
 
-    -- สำรอง: ใช้ฟังก์ชัน Equip และสั่ง Activate Tool จาก Character โดยตรง
-    local character = player.Character
-    if character then
-        for _, tool in ipairs(character:GetChildren()) do
-            if tool:IsA("Tool") and (tool.Name:find("Heal") or tool.Name:find("Potion")) then
-                pcall(function() tool:Activate() end)
-                return true, "ใช้ไอเทมจากมือตัวละคร"
+    if not chest.Parent then
+        openedChests[chest] = true
+        chestRetryAt[chest] = nil
+        sendNotification("Auto Chest", "หีบถูกเก็บแล้ว")
+        return true
+    end
+
+    local hasEnabledPrompt = false
+
+    for _, obj in ipairs(chest:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") and obj.Enabled then
+            hasEnabledPrompt = true
+            break
+        end
+    end
+
+    if not hasEnabledPrompt then
+        openedChests[chest] = true
+        chestRetryAt[chest] = nil
+        sendNotification("Auto Chest", "ตรวจพบว่าปุ่มเปิดหีบปิดใช้งานแล้ว")
+        return true
+    end
+
+    chestRetryAt[chest] = tick() + CHEST_RETRY_COOLDOWN
+    return false
+end
+
+-- ================================================
+-- AUTO DROPS
+-- ================================================
+
+local function findAndTeleportToDrop(rootPart)
+    if not AUTO_DROPS or not rootPart then return false end
+
+    local container = workspace:FindFirstChild("ClientDrops")
+        or workspace:FindFirstChild("Drops")
+
+    if not container then return false end
+
+    local closestDrop, closestDist = nil, SEARCH_RADIUS
+
+    for _, item in ipairs(container:GetChildren()) do
+        if (item:IsA("Model") or item:IsA("BasePart")
+            or item:IsA("Tool")) and not collectedDrops[item] then
+
+            local name = item.Name:lower()
+
+            if not name:find("orb") and not name:find("chest")
+                and not name:find("rewardbox") then
+
+                local ok, pos = pcall(function()
+                    return item:GetPivot().Position
+                end)
+
+                if ok then
+                    local dist = (pos - rootPart.Position).Magnitude
+
+                    if dist < closestDist then
+                        closestDrop, closestDist = item, dist
+                    end
+                end
             end
         end
     end
 
-    return false, "ไม่พบปุ่ม Slot 4 บนหน้าจอ"
+    if not closestDrop or not AUTO_DROPS then return false end
+
+    collectedDrops[closestDrop] = true
+    sendNotification("Auto Drops", "วาร์ปไปเก็บ " .. closestDrop.Name)
+
+    local ok, pos = pcall(function()
+        return closestDrop:GetPivot().Position
+    end)
+
+    if not ok then return false end
+
+    pcall(function()
+        rootPart.CFrame = CFrame.new(pos)
+    end)
+
+    task.wait(0.1)
+
+    local parts = {}
+
+    if closestDrop:IsA("BasePart") then
+        table.insert(parts, closestDrop)
+    else
+        for _, obj in ipairs(closestDrop:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                table.insert(parts, obj)
+            end
+        end
+    end
+
+    for _, part in ipairs(parts) do
+        pcall(function()
+            part.CanCollide = false
+
+            if firetouchinterest then
+                firetouchinterest(rootPart, part, 0)
+                task.wait(0.02)
+                firetouchinterest(rootPart, part, 1)
+            end
+        end)
+    end
+
+    for _, obj in ipairs(closestDrop:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then
+            pcall(function()
+                obj.RequiresLineOfSight = false
+                obj.HoldDuration = 0
+
+                if fireproximityprompt then
+                    fireproximityprompt(obj)
+                end
+            end)
+        end
+    end
+
+    task.wait(0.2)
+    return true
 end
+
+-- ================================================
+-- PATHFINDING (AUTO FARM)
+-- ================================================
+
+local function walkToTarget(character, humanoid, targetPosition)
+    local path = PathfindingService:CreatePath({
+        AgentRadius = 2.5,
+        AgentHeight = 5,
+        AgentCanJump = true,
+        WaypointSpacing = 4
+    })
+
+    local success = pcall(function()
+        path:ComputeAsync(character:GetPivot().Position, targetPosition)
+    end)
+
+    if not success or path.Status ~= Enum.PathStatus.Success then
+        humanoid:MoveTo(character:GetPivot().Position)
+        return false
+    end
+
+    for _, waypoint in ipairs(path:GetWaypoints()) do
+        if not AUTO_FARM or AUTO_FEED_BUSY or not character.Parent or humanoid.Health <= 0 then
+            humanoid:MoveTo(character:GetPivot().Position)
+            return false
+        end
+
+        if waypoint.Action == Enum.PathWaypointAction.Jump then
+            humanoid.Jump = true
+        end
+
+        humanoid:MoveTo(waypoint.Position)
+
+        local finished, reached = false, false
+        local conn = humanoid.MoveToFinished:Connect(function(didReach)
+            finished = true
+            reached = didReach
+        end)
+
+        local started = tick()
+        while not finished and tick() - started < 1.2
+            and AUTO_FARM and not AUTO_FEED_BUSY do
+            task.wait(0.05)
+        end
+        conn:Disconnect()
+
+        if not finished or not reached then
+            humanoid:MoveTo(character:GetPivot().Position)
+            return false
+        end
+    end
+
+    return true
+end
+
+-- ================================================
+-- AUTO DUNGEON LOOP (WITH GUARD LOCK)
+-- ================================================
+
+local LOBBY_PLACE_ID = 84773733171614
+local DUNGEON_PLACE_ID = 112998674138179
+local DUNGEON_DURATION = 60
+
+local function walkIntoNearestLift()
+    local folder = workspace:FindFirstChild("MatchmakingZones")
+    if not folder then
+        warn("[Dungeon Loop] ไม่พบ MatchmakingZones")
+        return false
+    end
+
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+
+    if not root or not humanoid then
+        warn("[Dungeon Loop] ไม่พบตัวละครหรือ Humanoid")
+        return false
+    end
+
+    local nearest, bestDistance
+
+    for i = 1, 4 do
+        local lift = folder:FindFirstChild("StartLift" .. i)
+
+        if lift then
+            local ok, pos = pcall(function()
+                return lift:GetPivot().Position
+            end)
+
+            if ok then
+                local distance = (root.Position - pos).Magnitude
+                if not bestDistance or distance < bestDistance then
+                    nearest = lift
+                    bestDistance = distance
+                end
+            end
+        end
+    end
+
+    if not nearest then
+        warn("[Dungeon Loop] ไม่พบลิฟต์")
+        return false
+    end
+
+    local targetPos = nearest:GetPivot().Position
+    humanoid:MoveTo(targetPos)
+
+    local started = tick()
+
+    while AUTO_DUNGEON_LOOP and tick() - started < 15 do
+        if not root.Parent then return false end
+
+        if (root.Position - targetPos).Magnitude < 8 then
+            return true
+        end
+
+        task.wait(0.25)
+    end
+
+    return false
+end
+
+local function selectForestAndStart()
+    local pg = player:WaitForChild("PlayerGui", 10)
+    local main = pg and pg:WaitForChild("Main", 10)
+    local chooseMap = main and main:WaitForChild("ChooseMap", 20)
+
+    if not chooseMap then
+        warn("[Dungeon Loop] ไม่พบ ChooseMap")
+        return false
+    end
+
+    local mapName = DungeonSettings.Map
+    local selectedLevel = DungeonSettings.Level
+
+    if not DungeonLevels[mapName] then
+        warn("[Dungeon Loop] ชื่อแผนที่ไม่ถูกต้อง:", tostring(mapName))
+        return false
+    end
+
+    local validLevel = false
+    for _, levelName in ipairs(DungeonLevels[mapName]) do
+        if levelName == selectedLevel then
+            validLevel = true
+            break
+        end
+    end
+
+    if not validLevel then
+        warn("[Dungeon Loop] เลเวลไม่ตรงกับแผนที่:", mapName, selectedLevel)
+        return false
+    end
+
+    local mapList = chooseMap:FindFirstChild("MapChooseScrolling", true)
+    local mapButton = mapList and mapList:FindFirstChild(mapName, true)
+
+    if not mapButton or not mapButton:IsA("GuiButton") then
+        warn("[Dungeon Loop] ไม่พบปุ่มแผนที่:", mapName)
+        return false
+    end
+
+    if not fireButton(mapButton) then
+        warn("[Dungeon Loop] กดเลือกแผนที่ไม่สำเร็จ:", mapName)
+        return false
+    end
+
+    task.wait(0.5)
+
+    chooseMap = main:FindFirstChild("ChooseMap")
+    local levelList = chooseMap
+        and chooseMap:FindFirstChild("LevelChooseScrolling")
+
+    if not levelList then
+        warn("[Dungeon Loop] ไม่พบ LevelChooseScrolling")
+        return false
+    end
+
+    local levelButton
+    local wantedLevel = tostring(selectedLevel):gsub("%s+", ""):lower()
+
+    for _, obj in ipairs(levelList:GetDescendants()) do
+        if obj:IsA("GuiButton") and obj.Visible then
+            local nameMatch = tostring(obj.Name):gsub("%s+", ""):lower() == wantedLevel
+            local textMatch = obj:IsA("TextButton")
+                and tostring(obj.Text):gsub("%s+", ""):lower() == wantedLevel
+            if nameMatch or textMatch then
+                levelButton = obj
+                break
+            end
+        end
+    end
+
+    if not levelButton then
+        warn("[Dungeon Loop] ไม่พบปุ่มเลเวล:", selectedLevel)
+        return false
+    end
+
+    if not fireButton(levelButton) then
+        warn("[Dungeon Loop] กดเลือกเลเวลไม่สำเร็จ:", selectedLevel)
+        return false
+    end
+
+    task.wait(0.5)
+
+    local mapInfo = chooseMap:FindFirstChild("MapInfo", true)
+        or main:FindFirstChild("MapInfo", true)
+    local startButton = mapInfo and mapInfo:FindFirstChild("StartButton", true)
+
+    if not startButton then
+        warn("[Dungeon Loop] ไม่พบ MapInfo.StartButton")
+        return false
+    end
+
+    local startOK = fireButton(startButton)
+
+    if not startOK then
+        warn("[Dungeon Loop] กด Start ไม่สำเร็จ")
+        return false
+    end
+
+    local waiting = main:WaitForChild("TeleportWaiting", 15)
+    local secondStart = waiting and waiting:WaitForChild("StartButton", 10)
+
+    if not secondStart then
+        warn("[Dungeon Loop] ไม่พบปุ่ม Start ใน TeleportWaiting")
+        return false
+    end
+
+    task.wait(0.5)
+    return fireButton(secondStart)
+end
+
+local function runDungeonRound()
+    if game.PlaceId == LOBBY_PLACE_ID then
+        sendNotification(
+            "Dungeon Loop",
+            "กำลังหาลิฟต์เข้า " .. tostring(DungeonSettings.Map)
+        )
+
+        if not walkIntoNearestLift() then
+            warn("[Dungeon Loop] เดินเข้าลิฟต์ไม่สำเร็จ")
+            return
+        end
+
+        task.wait(1)
+
+        if not selectForestAndStart() then
+            warn("[Dungeon Loop] เลือกแผนที่หรือกด Start ไม่สำเร็จ")
+        end
+
+        return
+    end
+
+    if game.PlaceId == DUNGEON_PLACE_ID then
+        sendNotification("Dungeon Loop", "เริ่มฟาร์ม 60 วินาที")
+
+        enableAllAutoButtons()
+
+        local started = tick()
+        while AUTO_DUNGEON_LOOP
+            and tick() - started < DUNGEON_DURATION do
+            task.wait(0.25)
+        end
+
+        if not AUTO_DUNGEON_LOOP then return end
+
+        sendNotification("Dungeon Loop", "ครบเวลา กำลังกลับล็อบบี้")
+
+        local pg = player:FindFirstChild("PlayerGui")
+        local hud = pg and pg:FindFirstChild("HUD")
+        local buttons = hud and hud:FindFirstChild("ButtonsFrame")
+        local evacuate = buttons and buttons:FindFirstChild("EvacuateButton")
+        local imageButton = evacuate and evacuate:FindFirstChild("ImageButton")
+
+        if imageButton then
+            fireButton(imageButton)
+        else
+            warn("[Dungeon Loop] ไม่พบ EvacuateButton")
+        end
+    end
+end
+
+local dungeonRoundRunning = false
+
+task.spawn(function()
+    while screenGui.Parent do
+        if AUTO_DUNGEON_LOOP and not dungeonRoundRunning then
+            dungeonRoundRunning = true
+
+            local ok, err = pcall(runDungeonRound)
+            if not ok then
+                warn("[Dungeon Loop]", err)
+            end
+
+            dungeonRoundRunning = false
+        end
+
+        task.wait(1)
+    end
+end)
+
+-- ================================================
+-- MAIN LOOP (WITH DYNAMIC ENEMIES FOLDER)
+-- ================================================
+
+task.spawn(function()
+    local lastRoomKey = nil
+    local lastEnemiesFolder = nil
+
+    while screenGui.Parent do
+        local character = player.Character
+        local humanoid = character
+            and character:FindFirstChildOfClass("Humanoid")
+        local rootPart = character
+            and character:FindFirstChild("HumanoidRootPart")
+
+        local digimons = workspace:FindFirstChild("Digimons")
+        local enemiesFolder = digimons and digimons:FindFirstChild("Enemies")
+        local roomKey = getCurrentRoomKey()
+
+        if (roomKey and lastRoomKey and roomKey ~= lastRoomKey)
+            or (lastEnemiesFolder and enemiesFolder ~= lastEnemiesFolder) then
+            table.clear(visited)
+            sendNotification("Auto Farm", "ตรวจพบห้องใหม่ กำลังเลือกเป้าหมายใหม่")
+        end
+        if roomKey then lastRoomKey = roomKey end
+        lastEnemiesFolder = enemiesFolder
+
+        if character and humanoid and rootPart and humanoid.Health > 0 then
+            if AUTO_FEED and not AUTO_FEED_WORKER_RUNNING then
+                local capture = findNearestCapture(rootPart)
+                if capture then
+                    AUTO_FEED_WORKER_RUNNING = true
+                    AUTO_FEED_BUSY = true
+                    task.spawn(function()
+                        local ok, result = pcall(processAutoFeed, capture)
+                        if not ok then
+                            warn("[Auto Feed]", result)
+                        end
+                        AUTO_FEED_BUSY = false
+                        AUTO_FEED_WORKER_RUNNING = false
+                    end)
+                end
+            end
+
+            if not AUTO_FEED_BUSY then
+                local foundChest = findAndTeleportToChest(rootPart)
+                local foundDrop = false
+
+                if not foundChest then
+                    foundDrop = findAndTeleportToDrop(rootPart)
+                end
+
+                if not foundChest and not foundDrop
+                    and AUTO_FARM and enemiesFolder then
+
+                    local target, targetDistance = nil, math.huge
+                    local myPos = rootPart.Position
+
+                    for _, enemy in ipairs(enemiesFolder:GetChildren()) do
+                        if enemy:IsA("Model") and enemy.Parent == enemiesFolder
+                            and not visited[enemy] then
+
+                            local enemyHumanoid =
+                                enemy:FindFirstChildOfClass("Humanoid")
+
+                            if not enemyHumanoid or enemyHumanoid.Health > 0 then
+                                local ok, enemyPos = pcall(function()
+                                    return enemy:GetPivot().Position
+                                end)
+
+                                if ok then
+                                    local distance = (enemyPos - myPos).Magnitude
+                                    if distance < targetDistance then
+                                        target = enemy
+                                        targetDistance = distance
+                                    end
+                                end
+                            end
+                        end
+                    end
+
+                    if target and AUTO_FARM then
+                        visited[target] = true
+
+                        sendNotification(
+                            "เดินไปตีมอนสเตอร์",
+                            target.Name
+                        )
+
+                        local started = tick()
+                        local targetRoomKey = roomKey
+                        local pathFailed = false
+
+                        while AUTO_FARM and not AUTO_FEED_BUSY
+                            and target.Parent == enemiesFolder
+                            and tick() - started < MAX_WALK_TIME do
+
+                            local currentRoomKey = getCurrentRoomKey()
+                            if (targetRoomKey and currentRoomKey
+                                and currentRoomKey ~= targetRoomKey)
+                                or target.Parent ~= enemiesFolder then
+                                table.clear(visited)
+                                break
+                            end
+
+                            local enemyHumanoid =
+                                target:FindFirstChildOfClass("Humanoid")
+
+                            if enemyHumanoid and enemyHumanoid.Health <= 0 then
+                                break
+                            end
+
+                            local ok, targetPos = pcall(function()
+                                return target:GetPivot().Position
+                            end)
+                            if not ok then break end
+
+                            local distance = (targetPos - rootPart.Position).Magnitude
+
+                            if distance <= ARRIVAL_DISTANCE then
+                                pcall(function()
+                                    VirtualUser:ClickButton1(Vector2.new())
+                                end)
+                                task.wait(0.2)
+                            else
+                                local reached = walkToTarget(character, humanoid, targetPos)
+                                if not reached then
+                                    pathFailed = true
+                                    break
+                                end
+                            end
+                        end
+
+                        if pathFailed then
+                            visited[target] = true
+                            sendNotification("Auto Farm", "ไปไม่ถึงเป้าหมาย ข้ามไปหาม่อนตัวอื่น")
+                        end
+                    elseif AUTO_FARM then
+                        table.clear(visited)
+                        task.wait(1)
+                    end
+                end
+            end
+        end
+
+        task.wait(0.2)
+    end
+end)
