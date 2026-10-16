@@ -2029,8 +2029,37 @@ local CHEST_RETRY_COOLDOWN = 15
 local CHEST_ENEMY_CHECK_DISTANCE = 60
 local CHEST_STANDOFF_DISTANCE = 5
 
+-- In the dungeon, only allow Auto Chest to target objects belonging to
+-- the physical room currently shown by Auto Explore. This prevents a chest
+-- left in an earlier room from pulling the player backwards.
+local function getChestWorldRoomName(obj)
+    local gameMap = workspace:FindFirstChild("GameMap")
+    if not gameMap or not obj then return nil end
+
+    local ancestor = obj.Parent
+    while ancestor and ancestor ~= gameMap do
+        if ancestor.Name:match("^Layer_%d+_SmallMap_%d+$")
+            and ancestor.Parent == gameMap then
+            return ancestor.Name
+        end
+        ancestor = ancestor.Parent
+    end
+    return nil
+end
+
 local function findAndTeleportToChest(rootPart)
     if not AUTO_CHEST or not rootPart then
+        return false
+    end
+
+    local isDungeon = game.PlaceId == EXPLORE_DUNGEON_PLACE_ID
+    local currentRoomKey = isDungeon and getCurrentRoomKey() or nil
+    local currentWorldRoomName = currentRoomKey
+        and currentRoomKey:match("([^/]+)$") or nil
+
+    -- If we cannot identify the current room in the dungeon, fail closed:
+    -- do not use a workspace-wide chest search that could revisit old rooms.
+    if isDungeon and not currentWorldRoomName then
         return false
     end
 
@@ -2045,14 +2074,22 @@ local function findAndTeleportToChest(rootPart)
             local name = obj.Name:lower()
             if name:find("chest") or name:find("rewardbox")
                 or name:find("treasure") then
-                local ok, pos = pcall(function()
-                    return obj:GetPivot().Position
-                end)
-                if ok then
-                    local dist = (pos - rootPart.Position).Magnitude
-                    if dist < closestDist then
-                        closestChest = obj
-                        closestDist = dist
+
+                local inCurrentRoom = true
+                if isDungeon then
+                    inCurrentRoom = getChestWorldRoomName(obj) == currentWorldRoomName
+                end
+
+                if inCurrentRoom then
+                    local ok, pos = pcall(function()
+                        return obj:GetPivot().Position
+                    end)
+                    if ok then
+                        local dist = (pos - rootPart.Position).Magnitude
+                        if dist < closestDist then
+                            closestChest = obj
+                            closestDist = dist
+                        end
                     end
                 end
             end
@@ -2748,6 +2785,9 @@ task.spawn(function()
         if (roomKey and lastRoomKey and roomKey ~= lastRoomKey)
             or (lastEnemiesFolder and enemiesFolder ~= lastEnemiesFolder) then
             table.clear(visited)
+            -- Chest retry delays are room-specific; don't carry a failed attempt
+            -- from the previous room into the room we just entered.
+            table.clear(chestRetryAt)
             sendNotification("Auto Farm", "ตรวจพบห้องใหม่ กำลังเลือกเป้าหมายใหม่")
         end
         if roomKey then lastRoomKey = roomKey end
