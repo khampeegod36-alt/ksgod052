@@ -1473,9 +1473,10 @@ local function clickHealMobileButton(button)
     pcall(function()
         -- VirtualInputManager touch states: begin -> end.
         if VirtualInputManager.SendTouchEvent then
+            -- Correct touch lifecycle: 0 = begin, 1 = end.
             VirtualInputManager:SendTouchEvent(0, 0, x, y)
             task.wait(0.08)
-            VirtualInputManager:SendTouchEvent(0, 2, x, y)
+            VirtualInputManager:SendTouchEvent(0, 1, x, y)
             sentTouch = true
         end
     end)
@@ -1675,6 +1676,61 @@ end
 local function triggerSlot4Potion(mode, forceGui)
     -- PC: ยึดวิธีจาก Auto Heal ใน digimonEra3.lua
     -- ขั้นแรกส่งปุ่มคีย์บอร์ด 4; หากต้อง fallback ให้หา GuiButton ที่ Text == "4" ทั่ว PlayerGui.
+    -- Mobile-only path: target the actual visible slot button whose own Text is "4".
+    -- This block is isolated from the PC keyboard/UI behavior below.
+    if tostring(mode) == "Mobile" then
+        local mobilePg = player:FindFirstChild("PlayerGui")
+        if mobilePg then
+            local function visibleThroughParents(obj)
+                local node = obj
+                while node and node ~= mobilePg do
+                    if node:IsA("GuiObject") and not node.Visible then return false end
+                    node = node.Parent
+                end
+                return true
+            end
+
+            local candidates = {}
+            for _, obj in ipairs(mobilePg:GetDescendants()) do
+                if obj:IsA("TextButton") or obj:IsA("ImageButton") then
+                    local buttonText = ""
+                    pcall(function() buttonText = tostring(obj.Text) end)
+                    if buttonText:match("^%s*4%s*$") and obj.Visible and obj.Active
+                        and visibleThroughParents(obj) then
+                        table.insert(candidates, obj)
+                    end
+                end
+            end
+
+            local mobileHud = mobilePg:FindFirstChild("HUD")
+            local mobileQuickItem = mobileHud and mobileHud:FindFirstChild("QuickItem", true)
+            local mobileTarget = nil
+            if mobileQuickItem then
+                for _, candidate in ipairs(candidates) do
+                    if candidate == mobileQuickItem or candidate:IsDescendantOf(mobileQuickItem) then
+                        mobileTarget = candidate
+                        break
+                    end
+                end
+            end
+            if not mobileTarget and #candidates == 1 then
+                mobileTarget = candidates[1]
+            end
+
+            if mobileTarget then
+                if clickHealMobileButton(mobileTarget) then
+                    print("[Auto Heal Mobile] แตะปุ่มช่อง 4 ตาม UI Text=4:", mobileTarget:GetFullName())
+                    return true, "แตะปุ่มช่อง 4 แล้ว; กำลังตรวจ HP"
+                end
+                if fireButton(mobileTarget) then
+                    print("[Auto Heal Mobile] เรียก callback ปุ่มช่อง 4 Text=4:", mobileTarget:GetFullName())
+                    return true, "เรียก callback ช่อง 4 แล้ว; กำลังตรวจ HP"
+                end
+                warn("[Auto Heal Mobile] พบปุ่ม Text=4 แต่ส่งการแตะไม่สำเร็จ:", mobileTarget:GetFullName())
+            end
+        end
+    end
+
     local pg = player:FindFirstChild("PlayerGui")
     if tostring(mode) ~= "Mobile" then
         if not forceGui then
