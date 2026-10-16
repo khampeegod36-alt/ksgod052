@@ -1731,15 +1731,32 @@ local function triggerSlot4Potion(mode, forceGui)
             end
 
             if mobileTarget then
-                if clickHealMobileButton(mobileTarget) then
-                    print("[Auto Heal Mobile] แตะปุ่มช่อง 4 ตาม UI Text=4:", mobileTarget:GetFullName())
-                    return true, "แตะปุ่มช่อง 4 แล้ว; กำลังตรวจ HP"
-                end
+                -- MOBILE-ONLY CHANGE:
+                -- Prefer the connected UI callback first. The detected InventoryUI
+                -- connection is named useEquippedItem; sending a synthetic touch can
+                -- return success without the game's item-use callback actually running.
+                -- The existing PC branch below is deliberately unchanged.
                 if fireButton(mobileTarget) then
-                    print("[Auto Heal Mobile] เรียก callback ปุ่มช่อง 4 Text=4:", mobileTarget:GetFullName())
+                    print("[Auto Heal Mobile] เรียก callback ปุ่มช่อง 4 ก่อน Touch:", mobileTarget:GetFullName())
                     return true, "เรียก callback ช่อง 4 แล้ว; กำลังตรวจ HP"
                 end
-                warn("[Auto Heal Mobile] พบปุ่ม Text=4 แต่ส่งการแตะไม่สำเร็จ:", mobileTarget:GetFullName())
+
+                if forceGui then
+                    local activated = pcall(function() mobileTarget:Activate() end)
+                    if activated then
+                        print("[Auto Heal Mobile] Fallback Activate ช่อง 4:", mobileTarget:GetFullName())
+                        return true, "Activate ช่อง 4 แล้ว; กำลังตรวจ HP"
+                    end
+                    warn("[Auto Heal Mobile] Fallback ช่อง 4 ไม่สำเร็จ:", mobileTarget:GetFullName())
+                    return false, "Fallback ช่อง 4 ไม่สำเร็จ"
+                end
+
+                -- Touch is only attempted if firing the connected callback failed.
+                if clickHealMobileButton(mobileTarget) then
+                    print("[Auto Heal Mobile] ส่ง Touch ช่อง 4 ตาม UI Text=4:", mobileTarget:GetFullName())
+                    return true, "ส่ง Touch ช่อง 4 แล้ว; กำลังตรวจ HP"
+                end
+                warn("[Auto Heal Mobile] พบปุ่ม Text=4 แต่ callback และ Touch ไม่สำเร็จ:", mobileTarget:GetFullName())
             end
         end
     end
@@ -1964,6 +1981,17 @@ task.spawn(function()
                                 healed, afterHP = confirmHealIncrease(curHP, 2)
                             else
                                 warn("[Auto Heal PC] GUI fallback: " .. tostring(guiResult))
+                            end
+                        elseif not healed and activeHealMode == "Mobile" then
+                            -- A touch API call can return successfully without the game
+                            -- consuming it. Only after HP confirmation fails, retry the
+                            -- exact slot-4 button through its GUI callback/Activate path.
+                            warn("[Auto Heal Mobile] แตะช่อง 4 แล้ว HP ไม่เพิ่ม; ลอง callback ของปุ่มช่อง 4")
+                            local guiSent, guiResult = triggerSlot4Potion(activeHealMode, true)
+                            if guiSent then
+                                healed, afterHP = confirmHealIncrease(curHP, 2)
+                            else
+                                warn("[Auto Heal Mobile] Callback fallback: " .. tostring(guiResult))
                             end
                         end
 
