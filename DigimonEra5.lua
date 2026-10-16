@@ -1318,12 +1318,24 @@ local function getHealItemControls()
     local main = pg:FindFirstChild("Main")
     local itemBox = main and main:FindFirstChild("ItemBox", true)
     if not itemBox then
-        -- Some UI versions parent the inventory outside Main.
+        -- Inventory UI names/parents differ between PC and mobile builds.
         itemBox = pg:FindFirstChild("ItemBox", true)
     end
-    if not itemBox then return nil end
 
-    local scrolling = itemBox:FindFirstChild("ScrollingFrame", true)
+    -- Fallback: locate the inventory panel by its Equip/Remove control instead
+    -- of relying on the literal name ItemBox.
+    if not itemBox then
+        for _, node in ipairs(pg:GetDescendants()) do
+            if (node:IsA("Frame") or node:IsA("ScrollingFrame"))
+                and node:FindFirstChild("ItemEquip", true)
+                and node:FindFirstChild("ModeName", true) then
+                itemBox = node
+                break
+            end
+        end
+    end
+
+    local scrolling = itemBox and itemBox:FindFirstChild("ScrollingFrame", true)
 
     -- Inventory item Instances are often named generic IDs; the potion name is
     -- displayed by a descendant TextLabel. Match both Instance.Name and UI text.
@@ -1354,9 +1366,24 @@ local function getHealItemControls()
         return nil
     end
 
-    local item = findPotion(scrolling) or findPotion(itemBox)
+    local item = findPotion(scrolling) or findPotion(itemBox) or findPotion(pg)
 
-    local info = itemBox:FindFirstChild("InfoFrame", true)
+    -- If the potion was found outside the expected panel, walk upward to the
+    -- nearest container that owns the Equip/Remove controls.
+    if not itemBox and item then
+        local ancestor = item.Parent
+        while ancestor and ancestor ~= pg do
+            if ancestor:FindFirstChild("ItemEquip", true)
+                and ancestor:FindFirstChild("ModeName", true) then
+                itemBox = ancestor
+                break
+            end
+            ancestor = ancestor.Parent
+        end
+    end
+    if not itemBox then return nil end
+
+    local info = itemBox:FindFirstChild("InfoFrame", true) or itemBox
     local equip = info and info:FindFirstChild("ItemEquip", true)
     local modeName = equip and equip:FindFirstChild("ModeName", true)
 
@@ -1473,42 +1500,67 @@ local function triggerSlot4Potion()
     local quickItem = hud and hud:FindFirstChild("QuickItem", true)
 
     if not quickItem then
-        return false, "ไม่พบ HUD.QuickItem"
+        return false, "ไม่พบ HUD.QuickItem (ช่องยา 4)"
     end
 
-    local candidates = {}
-    if quickItem:IsA("GuiButton") then
-        table.insert(candidates, quickItem)
-    else
-        for _, child in ipairs(quickItem:GetDescendants()) do
-            if child:IsA("GuiButton") then
-                table.insert(candidates, child)
+    -- In the known UI layout QuickItem itself is the slot-4 button. Do not
+    -- iterate every descendant button: that can accidentally activate another
+    -- hotbar slot, especially on mobile where QuickItem may be a Frame.
+    local button = quickItem
+    if not button:IsA("GuiButton") then
+        local named = quickItem:FindFirstChild("Slot4", true)
+            or quickItem:FindFirstChild("Item4", true)
+            or quickItem:FindFirstChild("Button4", true)
+        if named and named:IsA("GuiButton") then
+            button = named
+        else
+            -- Some mobile builds wrap the slot-4 tap target in a Frame. If it
+            -- contains exactly one button, that button is unambiguous.
+            local onlyButton = nil
+            local buttonCount = 0
+            for _, child in ipairs(quickItem:GetDescendants()) do
+                if child:IsA("GuiButton") then
+                    buttonCount += 1
+                    onlyButton = child
+                end
+            end
+            if buttonCount == 1 then
+                button = onlyButton
+            else
+                -- Otherwise accept a button whose own name/text clearly marks 4.
+                for _, child in ipairs(quickItem:GetDescendants()) do
+                    if child:IsA("GuiButton") then
+                        local marker = (child.Name .. " " .. tostring(child.Text or "")):lower()
+                        if marker:match("slot%s*4") or marker:match("item%s*4")
+                            or marker:match("button%s*4") or marker:match("^%s*4%s*$") then
+                            button = child
+                            break
+                        end
+                    end
+                end
+                if button == quickItem then
+                    return false, "พบ QuickItem แต่ยังระบุปุ่มช่อง 4 ที่ถูกต้องไม่ได้"
+                end
             end
         end
     end
 
-    if #candidates == 0 then
-        return false, "พบ QuickItem แต่ไม่มีปุ่ม GuiButton อยู่ข้างใน"
+    if not button.Visible or not button.Active then
+        return false, "ช่องยา 4 ยังไม่พร้อมใช้งาน"
     end
 
-    for _, button in ipairs(candidates) do
-        if button.Parent and button.Visible and button.Active then
-            -- Prefer the button's connected Activated/MouseButton handler so
-            -- PC and mobile controller buttons use the same game callback.
-            if fireButton(button) then
-                print("[Auto Heal] Fired QuickItem button:", button:GetFullName())
-                return true, "ส่งคำสั่งปุ่มใช้ยาจาก QuickItem แล้ว; กำลังตรวจ HP"
-            end
-            if clickHealGuiButton(button) then
-                print("[Auto Heal] Clicked QuickItem button:", button:GetFullName())
-                return true, "คลิกปุ่มใช้ยาจาก QuickItem แล้ว; กำลังตรวจ HP"
-            end
-        end
+    -- Prefer the game's connected callback; use GUI click as fallback.
+    if fireButton(button) then
+        print("[Auto Heal] Fired slot 4 button:", button:GetFullName())
+        return true, "ส่งคำสั่งช่องยา 4 แล้ว; กำลังตรวจ HP"
+    end
+    if clickHealGuiButton(button) then
+        print("[Auto Heal] Clicked slot 4 button:", button:GetFullName())
+        return true, "คลิกช่องยา 4 แล้ว; กำลังตรวจ HP"
     end
 
-    return false, "พบ QuickItem แต่คลิกปุ่มใช้ยาไม่สำเร็จ"
+    return false, "กดช่องยา 4 ไม่สำเร็จ"
 end
-
 -- ตรวจ HP ซ้ำหลังใช้คำสั่ง เพื่อไม่รายงานว่าใช้ยาสำเร็จจากการกดปุ่มอย่างเดียว
 local function confirmHealIncrease(previousHP, timeout)
     local deadline = tick() + (timeout or 2)
