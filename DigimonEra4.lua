@@ -1,4 +1,3 @@
-
 print("[Digimon Era] SCRIPT STARTED - GUI FIXED & VISIBLE")
 -- ================================================
 -- DIGIMON ERA AUTO FARM + AUTO FEED + AUTO EXPLORE + DUNGEON LOOP
