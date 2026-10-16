@@ -948,10 +948,8 @@ end
 
 local EXPLORE_CHECK_INTERVAL = 5
 local INVESTIGATE_COOLDOWN = 5
-local EXPLORE_MAX_ROOM_SELECTIONS = 3
 local EXPLORE_MAX_MAP = 3
 
-local exploreRoomSelections = 0
 local lastInvestigateTime = tick()
 local exploringNow = false
 
@@ -960,7 +958,6 @@ local lastExplorePlaceId = game.PlaceId
 
 if game.PlaceId == EXPLORE_DUNGEON_PLACE_ID then
     lastInvestigateTime = 0
-    exploreRoomSelections = 0
     print("[Auto Explore] เข้า Dungeon — รีเซ็ตตัวนับห้อง")
 end
 
@@ -1187,8 +1184,7 @@ task.spawn(function()
 
             if game.PlaceId == EXPLORE_DUNGEON_PLACE_ID then
                 lastInvestigateTime = 0
-                exploreRoomSelections = 0
-
+            
                 print("[Auto Explore] เข้า Dungeon รอบใหม่ — รีเซ็ตตัวนับห้อง")
             end
         end
@@ -1198,10 +1194,6 @@ task.spawn(function()
 
             local ok, err = pcall(function()
                 if game.PlaceId ~= EXPLORE_DUNGEON_PLACE_ID then
-                    return
-                end
-
-                if exploreRoomSelections >= EXPLORE_MAX_ROOM_SELECTIONS then
                     return
                 end
 
@@ -1249,15 +1241,8 @@ task.spawn(function()
                     )
 
                     if fireButton(nextRoom) then
-                        exploreRoomSelections = exploreRoomSelections + 1
                         lastInvestigateTime = tick()
-
-                        print(
-                            "[Auto Explore] เลือกห้องแล้ว",
-                            exploreRoomSelections,
-                            "/",
-                            EXPLORE_MAX_ROOM_SELECTIONS
-                        )
+                        print("[Auto Explore] เลือกห้องถัดไปแล้ว:", nextRoom.Name)
 
                         task.wait(5)
                         closeMapForExplore()
@@ -1446,19 +1431,16 @@ local function triggerSlot4Potion()
         return false, "ช่องยา 4 ยังไม่พร้อมใช้งาน"
     end
 
-    local ok, fired = pcall(function()
-        return fireButton(quickItem)
-    end)
+    -- คลิกช่องยา 4 ด้วย GUI click จริง แทน fireButton ซึ่งอาจเพียงยิง
+    -- Activated/MouseButton1Click โดยไม่ทำให้เกมใช้ไอเทมจริง
+    -- การยืนยัน HP ด้านล่างจะเป็นตัวตัดสินผล ไม่ถือว่าคลิกสำเร็จ = ใช้ยาสำเร็จ
+    local clicked = clickHealGuiButton(quickItem)
 
-    if ok and fired then
-        return true, "ส่งคำสั่งกดช่องยา 4 แล้ว"
+    if clicked then
+        return true, "คลิกช่องยา 4 แล้ว; กำลังตรวจว่า HP เพิ่มจริงหรือไม่"
     end
 
-    if not ok then
-        return false, "เกิดข้อผิดพลาดขณะกดช่องยา 4"
-    end
-
-    return false, "ส่งคำสั่งกดช่องยา 4 ไม่สำเร็จ"
+    return false, "คลิกช่องยา 4 ไม่สำเร็จ"
 end
 
 -- ตรวจ HP ซ้ำหลังใช้คำสั่ง เพื่อไม่รายงานว่าใช้ยาสำเร็จจากการกดปุ่มอย่างเดียว
@@ -1845,7 +1827,7 @@ end
 
 local LOBBY_PLACE_ID = 84773733171614
 local DUNGEON_PLACE_ID = 112998674138179
-local DUNGEON_DURATION = 60
+local DUNGEON_MAX_DURATION = 900 -- safety timeout: 15 minutes
 
 local function walkIntoNearestLift()
     local folder = workspace:FindFirstChild("MatchmakingZones")
@@ -2016,6 +1998,30 @@ local function selectForestAndStart()
     return fireButton(secondStart)
 end
 
+local function isMapThreeComplete()
+    local mapFrame = getMapFrame()
+    local scrolling = mapFrame and mapFrame:FindFirstChild("ScrollingFrame")
+    local mapThree = scrolling and scrolling:FindFirstChild("Map3")
+    if not mapThree then return false end
+
+    local foundRoom = false
+    for _, room in ipairs(mapThree:GetChildren()) do
+        if room:IsA("TextButton")
+            and room.Name:match("^Layer_%d+_SmallMap_%d+$") then
+            local locked = room:FindFirstChild("LockedFrame")
+            if not (locked and locked.Visible) then
+                foundRoom = true
+                local percent = readExplorePercent(room)
+                if percent == nil or percent < 100 then
+                    return false
+                end
+            end
+        end
+    end
+
+    return foundRoom
+end
+
 local function runDungeonRound()
     if game.PlaceId == LOBBY_PLACE_ID then
         sendNotification(
@@ -2038,19 +2044,29 @@ local function runDungeonRound()
     end
 
     if game.PlaceId == DUNGEON_PLACE_ID then
-        sendNotification("Dungeon Loop", "เริ่มฟาร์ม 60 วินาที")
+        sendNotification("Dungeon Loop", "เริ่มฟาร์มจนเคลียร์ Map3")
 
         enableAllAutoButtons()
 
         local started = tick()
+        local completed = false
         while AUTO_DUNGEON_LOOP
-            and tick() - started < DUNGEON_DURATION do
-            task.wait(0.25)
+            and tick() - started < DUNGEON_MAX_DURATION do
+            if isMapThreeComplete() and not hasReachableLivingEnemy(120) then
+                completed = true
+                break
+            end
+            task.wait(1)
         end
 
         if not AUTO_DUNGEON_LOOP then return end
 
-        sendNotification("Dungeon Loop", "ครบเวลา กำลังกลับล็อบบี้")
+        if completed then
+            sendNotification("Dungeon Loop", "เคลียร์ถึงชั้น 3 แล้ว กำลังกลับล็อบบี้")
+        else
+            warn("[Dungeon Loop] ครบเวลาป้องกัน 15 นาที แต่ยังตรวจไม่พบว่า Map3 เคลียร์ครบ")
+            sendNotification("Dungeon Loop", "หมดเวลาป้องกัน กำลังกลับล็อบบี้")
+        end
 
         local pg = player:FindFirstChild("PlayerGui")
         local hud = pg and pg:FindFirstChild("HUD")
