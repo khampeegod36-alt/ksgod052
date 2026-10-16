@@ -1412,7 +1412,8 @@ local function ensureHealPotionEquipped()
     return false
 end
 
--- ส่งคำสั่งใช้ยาผ่าน HUD.QuickItem (ช่องไอเทมที่ใช้ใน UI นี้)
+-- AUTO HEAL: tap the confirmed mobile quick-item button using real input simulation.
+-- Keep this change isolated to potion activation; other systems are unchanged.
 local function triggerSlot4Potion()
     local pg = player:FindFirstChild("PlayerGui")
     local hud = pg and pg:FindFirstChild("HUD")
@@ -1421,24 +1422,26 @@ local function triggerSlot4Potion()
     if not quickItem or not quickItem:IsA("GuiButton") then
         return false, "ไม่พบปุ่ม HUD.QuickItem"
     end
-
     if not quickItem.Visible or not quickItem.Active then
         return false, "ช่องยา 4 ยังไม่พร้อมใช้งาน"
     end
 
-    local ok, fired = pcall(function()
-        return fireButton(quickItem)
+    -- Prefer a simulated screen tap. Firing a GuiButton connection directly can
+    -- invoke callbacks without reproducing the input path used by the mobile UI.
+    local center = quickItem.AbsolutePosition + (quickItem.AbsoluteSize / 2)
+    local x, y = math.floor(center.X), math.floor(center.Y)
+    local ok, err = pcall(function()
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+        task.wait(0.08)
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
     end)
 
-    if ok and fired then
-        return true, "ส่งคำสั่งกดช่องยา 4 แล้ว"
+    if ok then
+        return true, "ส่งการแตะช่องยา 4 แล้ว; กำลังตรวจผลการใช้ยา"
     end
 
-    if not ok then
-        return false, "เกิดข้อผิดพลาดขณะกดช่องยา 4"
-    end
-
-    return false, "ส่งคำสั่งกดช่องยา 4 ไม่สำเร็จ"
+    warn("[Auto Heal] Mobile slot tap failed:", err)
+    return false, "จำลองการแตะช่องยา 4 ไม่สำเร็จ"
 end
 
 -- ตรวจ HP ซ้ำหลังใช้คำสั่ง เพื่อไม่รายงานว่าใช้ยาสำเร็จจากการกดปุ่มอย่างเดียว
