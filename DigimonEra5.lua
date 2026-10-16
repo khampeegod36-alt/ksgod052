@@ -1525,8 +1525,9 @@ end)
 -- ================================================
 
 local chestRetryAt = {}
-local CHEST_RETRY_COOLDOWN = 3
+local CHEST_RETRY_COOLDOWN = 15
 local CHEST_ENEMY_CHECK_DISTANCE = 60
+local CHEST_STANDOFF_DISTANCE = 5
 
 local function findAndTeleportToChest(rootPart)
     if not AUTO_CHEST or not rootPart then
@@ -1542,18 +1543,13 @@ local function findAndTeleportToChest(rootPart)
             and (not chestRetryAt[obj] or now >= chestRetryAt[obj]) then
 
             local name = obj.Name:lower()
-
-            if name:find("chest")
-                or name:find("rewardbox")
+            if name:find("chest") or name:find("rewardbox")
                 or name:find("treasure") then
-
                 local ok, pos = pcall(function()
                     return obj:GetPivot().Position
                 end)
-
                 if ok then
                     local dist = (pos - rootPart.Position).Magnitude
-
                     if dist < closestDist then
                         closestChest = obj
                         closestDist = dist
@@ -1568,33 +1564,26 @@ local function findAndTeleportToChest(rootPart)
     end
 
     local chest = closestChest
-
     local ok, chestPos = pcall(function()
         return chest:GetPivot().Position
     end)
-
     if not ok then
         chestRetryAt[chest] = tick() + CHEST_RETRY_COOLDOWN
         return false
     end
 
+    -- Do not try to open a chest while enemies are close to it.
     local digimons = workspace:FindFirstChild("Digimons")
     local enemies = digimons and digimons:FindFirstChild("Enemies")
-
     if enemies then
         for _, enemy in ipairs(enemies:GetChildren()) do
             if enemy:IsA("Model") then
-                local humanoid = enemy:FindFirstChildOfClass("Humanoid")
-
-                if humanoid and humanoid.Health > 0 then
+                local enemyHumanoid = enemy:FindFirstChildOfClass("Humanoid")
+                if enemyHumanoid and enemyHumanoid.Health > 0 then
                     local enemyOk, enemyPos = pcall(function()
                         return enemy:GetPivot().Position
                     end)
-
-                    if enemyOk
-                        and (enemyPos - chestPos).Magnitude
-                            <= CHEST_ENEMY_CHECK_DISTANCE then
-
+                    if enemyOk and (enemyPos - chestPos).Magnitude <= CHEST_ENEMY_CHECK_DISTANCE then
                         chestRetryAt[chest] = tick() + CHEST_RETRY_COOLDOWN
                         return false
                     end
@@ -1603,34 +1592,53 @@ local function findAndTeleportToChest(rootPart)
         end
     end
 
+    local prompts = {}
+    for _, obj in ipairs(chest:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") and obj.Enabled then
+            table.insert(prompts, obj)
+        end
+    end
+
+    if #prompts == 0 then
+        -- Avoid repeatedly selecting objects that only look like chests.
+        chestRetryAt[chest] = tick() + CHEST_RETRY_COOLDOWN
+        return false
+    end
+
     sendNotification("Auto Chest", "กำลังลองเปิดหีบ...")
 
-    for i = 1, 12 do
+    -- Stand beside the chest, never inside its pivot. Preserve the current
+    -- approach direction so the character is less likely to get trapped.
+    local offset = rootPart.Position - chestPos
+    local flatOffset = Vector3.new(offset.X, 0, offset.Z)
+    if flatOffset.Magnitude < 0.1 then
+        flatOffset = Vector3.new(1, 0, 0)
+    else
+        flatOffset = flatOffset.Unit
+    end
+    local standPos = chestPos + flatOffset * CHEST_STANDOFF_DISTANCE
+
+    pcall(function()
+        rootPart.CFrame = CFrame.new(standPos, chestPos)
+    end)
+    task.wait(0.15)
+
+    -- Make only a small number of attempts; don't keep teleporting onto the chest.
+    for i = 1, 3 do
         if not AUTO_CHEST or not chest.Parent then
             break
         end
-
-        pcall(function()
-            rootPart.CFrame = CFrame.new(
-                chest:GetPivot().Position + Vector3.new(0, 0.5, 0)
-            )
-        end)
-
-        for _, obj in ipairs(chest:GetDescendants()) do
-            if obj:IsA("ProximityPrompt") and obj.Enabled then
+        for _, prompt in ipairs(prompts) do
+            if prompt.Parent and prompt.Enabled and type(fireproximityprompt) == "function" then
                 pcall(function()
-                    obj.RequiresLineOfSight = false
-                    obj.MaxActivationDistance = 500
-                    obj.HoldDuration = 0
-
-                    if fireproximityprompt then
-                        fireproximityprompt(obj)
-                    end
+                    prompt.RequiresLineOfSight = false
+                    prompt.MaxActivationDistance = 20
+                    prompt.HoldDuration = 0
+                    fireproximityprompt(prompt)
                 end)
             end
         end
-
-        task.wait(0.1)
+        task.wait(0.15)
     end
 
     if not chest.Parent then
@@ -1640,22 +1648,22 @@ local function findAndTeleportToChest(rootPart)
         return true
     end
 
-    local hasEnabledPrompt = false
-
+    local anyEnabledPrompt = false
     for _, obj in ipairs(chest:GetDescendants()) do
         if obj:IsA("ProximityPrompt") and obj.Enabled then
-            hasEnabledPrompt = true
+            anyEnabledPrompt = true
             break
         end
     end
 
-    if not hasEnabledPrompt then
+    if not anyEnabledPrompt then
         openedChests[chest] = true
         chestRetryAt[chest] = nil
         sendNotification("Auto Chest", "ตรวจพบว่าปุ่มเปิดหีบปิดใช้งานแล้ว")
         return true
     end
 
+    -- Skip this chest for a while if it didn't open, letting Auto Farm continue.
     chestRetryAt[chest] = tick() + CHEST_RETRY_COOLDOWN
     return false
 end
