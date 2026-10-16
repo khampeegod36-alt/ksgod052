@@ -1951,14 +1951,13 @@ task.spawn(function()
 
                 isHealing = true
 
-                -- MOBILE-ONLY FIX:
-                -- The user has already placed the potion in slot 4. Do not reopen
-                -- Item/inventory or block slot-4 tapping on an equip-state detector.
-                -- Keep the original PC equip/use flow completely unchanged.
+                -- MOBILE-ONLY CHANGE:
+                -- Mobile Auto Heal now also uses the existing Inventory search/select/Equip
+                -- flow, using the mobile Touch path inside ensureHealPotionEquipped().
+                -- Keep the PC branch and the mobile slot-4 use method unchanged.
                 local ready
                 if activeHealMode == "Mobile" then
-                    ready = true
-                    print("[Auto Heal Mobile] ข้ามการเปิดกระเป๋า: ใช้ยาที่อยู่ช่อง 4 โดยตรง")
+                    ready = ensureHealPotionEquipped("Mobile")
                 else
                     ready = ensureHealPotionEquipped(activeHealMode)
                 end
@@ -2386,6 +2385,20 @@ local function walkIntoNearestLift()
     return false
 end
 
+local function dungeonNormalize(value)
+    return tostring(value or ""):gsub("[^%d%a]", ""):lower()
+end
+
+local function waitForVisible(instance, timeout)
+    local started = tick()
+    repeat
+        if not AUTO_DUNGEON_LOOP then return false end
+        if instance and instance.Parent and instance.Visible then return true end
+        task.wait(0.2)
+    until tick() - started >= (timeout or 15)
+    return instance and instance.Parent and instance.Visible or false
+end
+
 local function selectForestAndStart()
     local pg = player:WaitForChild("PlayerGui", 10)
     local main = pg and pg:WaitForChild("Main", 10)
@@ -2395,10 +2408,13 @@ local function selectForestAndStart()
         warn("[Dungeon Loop] ไม่พบ ChooseMap")
         return false
     end
+    if not waitForVisible(chooseMap, 20) then
+        warn("[Dungeon Loop] หน้าต่าง ChooseMap ยังไม่พร้อม")
+        return false
+    end
 
     local mapName = DungeonSettings.Map
     local selectedLevel = DungeonSettings.Level
-
     if not DungeonLevels[mapName] then
         warn("[Dungeon Loop] ชื่อแผนที่ไม่ถูกต้อง:", tostring(mapName))
         return false
@@ -2406,12 +2422,11 @@ local function selectForestAndStart()
 
     local validLevel = false
     for _, levelName in ipairs(DungeonLevels[mapName]) do
-        if levelName == selectedLevel then
+        if dungeonNormalize(levelName) == dungeonNormalize(selectedLevel) then
             validLevel = true
             break
         end
     end
-
     if not validLevel then
         warn("[Dungeon Loop] เลเวลไม่ตรงกับแผนที่:", mapName, selectedLevel)
         return false
@@ -2419,81 +2434,88 @@ local function selectForestAndStart()
 
     local mapList = chooseMap:FindFirstChild("MapChooseScrolling", true)
     local mapButton = mapList and mapList:FindFirstChild(mapName, true)
-
     if not mapButton or not mapButton:IsA("GuiButton") then
         warn("[Dungeon Loop] ไม่พบปุ่มแผนที่:", mapName)
         return false
     end
-
-    if not fireButton(mapButton) then
+    if not waitForVisible(mapButton, 10) or not fireButton(mapButton) then
         warn("[Dungeon Loop] กดเลือกแผนที่ไม่สำเร็จ:", mapName)
         return false
     end
 
-    task.wait(0.5)
-
+    task.wait(0.6)
     chooseMap = main:FindFirstChild("ChooseMap")
-    local levelList = chooseMap
-        and chooseMap:FindFirstChild("LevelChooseScrolling")
-
-    if not levelList then
-        warn("[Dungeon Loop] ไม่พบ LevelChooseScrolling")
-        return false
-    end
-
+    local levelList = chooseMap and chooseMap:FindFirstChild("LevelChooseScrolling", true)
     local levelButton
-    local wantedLevel = tostring(selectedLevel):gsub("%s+", ""):lower()
-
-    for _, obj in ipairs(levelList:GetDescendants()) do
-        if obj:IsA("GuiButton") and obj.Visible then
-            local nameMatch = tostring(obj.Name):gsub("%s+", ""):lower() == wantedLevel
-            local textMatch = obj:IsA("TextButton")
-                and tostring(obj.Text):gsub("%s+", ""):lower() == wantedLevel
-            if nameMatch or textMatch then
-                levelButton = obj
-                break
+    local wantedLevel = dungeonNormalize(selectedLevel)
+    local levelWait = tick()
+    repeat
+        if not AUTO_DUNGEON_LOOP then return false end
+        if levelList then
+            for _, obj in ipairs(levelList:GetDescendants()) do
+                if obj:IsA("GuiButton") and obj.Visible then
+                    local nameMatch = dungeonNormalize(obj.Name) == wantedLevel
+                    local textMatch = obj:IsA("TextButton") and dungeonNormalize(obj.Text) == wantedLevel
+                    if nameMatch or textMatch then
+                        levelButton = obj
+                        break
+                    end
+                end
             end
         end
-    end
+        if levelButton then break end
+        task.wait(0.25)
+    until tick() - levelWait >= 10
 
     if not levelButton then
         warn("[Dungeon Loop] ไม่พบปุ่มเลเวล:", selectedLevel)
         return false
     end
-
     if not fireButton(levelButton) then
         warn("[Dungeon Loop] กดเลือกเลเวลไม่สำเร็จ:", selectedLevel)
         return false
     end
 
-    task.wait(0.5)
-
-    local mapInfo = chooseMap:FindFirstChild("MapInfo", true)
+    task.wait(0.6)
+    local mapInfo = chooseMap and chooseMap:FindFirstChild("MapInfo", true)
         or main:FindFirstChild("MapInfo", true)
     local startButton = mapInfo and mapInfo:FindFirstChild("StartButton", true)
-
     if not startButton then
         warn("[Dungeon Loop] ไม่พบ MapInfo.StartButton")
         return false
     end
 
-    local startOK = fireButton(startButton)
-
-    if not startOK then
-        warn("[Dungeon Loop] กด Start ไม่สำเร็จ")
+    -- Click the first Start only when it is actually visible and wait for the
+    -- TeleportWaiting panel before attempting its second Start button.
+    if not waitForVisible(startButton, 10) or not fireButton(startButton) then
+        warn("[Dungeon Loop] กด Start แรกไม่สำเร็จ หรือปุ่มยังไม่พร้อม")
         return false
     end
 
-    local waiting = main:WaitForChild("TeleportWaiting", 15)
-    local secondStart = waiting and waiting:WaitForChild("StartButton", 10)
-
-    if not secondStart then
-        warn("[Dungeon Loop] ไม่พบปุ่ม Start ใน TeleportWaiting")
+    local waiting = main:WaitForChild("TeleportWaiting", 20)
+    if not waiting or not waitForVisible(waiting, 20) then
+        -- Some game versions start teleporting immediately after the first Start.
+        local started = tick()
+        while AUTO_DUNGEON_LOOP and tick() - started < 30 do
+            if game.PlaceId == DUNGEON_PLACE_ID then return true end
+            task.wait(0.25)
+        end
+        warn("[Dungeon Loop] TeleportWaiting ไม่ปรากฏหลัง Start แรก")
         return false
     end
 
-    task.wait(0.5)
-    return fireButton(secondStart)
+    local secondStart = waiting:WaitForChild("StartButton", 10)
+    if not secondStart or not waitForVisible(secondStart, 10) then
+        warn("[Dungeon Loop] ไม่พบปุ่ม Start ที่พร้อมใน TeleportWaiting")
+        return false
+    end
+    task.wait(0.3)
+    if not fireButton(secondStart) then
+        warn("[Dungeon Loop] กด Start ที่สองไม่สำเร็จ")
+        return false
+    end
+    print("[Dungeon Loop] กด Start ครบแล้ว รอเข้า Dungeon")
+    return true
 end
 
 -- Auto Evacuate is allowed only after the actual final room of Floor 3
@@ -2624,51 +2646,84 @@ end
 
 local function runDungeonRound()
     if game.PlaceId == LOBBY_PLACE_ID then
-        sendNotification(
-            "Dungeon Loop",
-            "กำลังหาลิฟต์เข้า " .. tostring(DungeonSettings.Map)
-        )
-
+        sendNotification("Dungeon Loop", "กำลังหาลิฟต์เข้า " .. tostring(DungeonSettings.Map))
         if not walkIntoNearestLift() then
-            warn("[Dungeon Loop] เดินเข้าลิฟต์ไม่สำเร็จ")
+            warn("[Dungeon Loop] เดินเข้าลิฟต์ไม่สำเร็จ; จะลองใหม่ในรอบถัดไป")
+            task.wait(3)
             return
         end
 
         task.wait(1)
-
         if not selectForestAndStart() then
-            warn("[Dungeon Loop] เลือกแผนที่หรือกด Start ไม่สำเร็จ")
+            warn("[Dungeon Loop] เลือกแผนที่หรือกด Start ไม่สำเร็จ; จะลองใหม่")
+            task.wait(3)
+            return
         end
 
+        -- Avoid clicking Start repeatedly while Roblox is still processing teleport.
+        local started = tick()
+        while AUTO_DUNGEON_LOOP and game.PlaceId == LOBBY_PLACE_ID
+            and tick() - started < 120 do
+            task.wait(0.5)
+        end
+        if game.PlaceId == LOBBY_PLACE_ID then
+            warn("[Dungeon Loop] รอเข้า Dungeon เกินเวลา จะลองเริ่มใหม่")
+        end
         return
     end
 
     if game.PlaceId == DUNGEON_PLACE_ID then
         sendNotification("Dungeon Loop", "เริ่มฟาร์มจนเคลียร์ Map3")
-
         enableAllAutoButtons()
 
         local started = tick()
         local completed = false
-        while AUTO_DUNGEON_LOOP
-            and tick() - started < DUNGEON_MAX_DURATION do
+        while AUTO_DUNGEON_LOOP and tick() - started < DUNGEON_MAX_DURATION do
             if isMapThreeComplete() and not hasReachableLivingEnemy(120) then
                 completed = true
                 break
             end
             task.wait(1)
         end
-
         if not AUTO_DUNGEON_LOOP then return end
 
         if not completed then
             warn("[Dungeon Loop] ยังยืนยัน Layer_3_SmallMap_7 ที่ 100% ไม่ได้ จึงยังไม่อพยพ")
-            sendNotification("Dungeon Loop", "ยังไม่ครบชั้น 3 ที่ 100% — จะยังไม่อพยพ")
-            return
+            sendNotification("Dungeon Loop", "ยังไม่ครบชั้น 3 ที่ 100% — จะตรวจต่อก่อนออก")
+            -- Do not restart the same dungeon round; keep checking completion while enabled.
+            while AUTO_DUNGEON_LOOP and game.PlaceId == DUNGEON_PLACE_ID do
+                if isMapThreeComplete() and not hasReachableLivingEnemy(120) then
+                    completed = true
+                    break
+                end
+                task.wait(2)
+            end
         end
+        if not AUTO_DUNGEON_LOOP or not completed then return end
 
         sendNotification("Dungeon Loop", "ชั้น 3 ห้อง 7 ครบ 100% แล้ว กำลังอพยพกลับล็อบบี้")
-        autoEvacuateToLobby()
+        if not autoEvacuateToLobby() then
+            warn("[Dungeon Loop] อพยพไม่สำเร็จ; จะรอแล้วลองอพยพใหม่")
+            while AUTO_DUNGEON_LOOP and game.PlaceId == DUNGEON_PLACE_ID do
+                task.wait(3)
+                if isMapThreeComplete() and not hasReachableLivingEnemy(120) then
+                    if autoEvacuateToLobby() then break end
+                end
+            end
+        end
+
+        -- Wait for the confirmed return to the lobby before allowing the next cycle.
+        local returnStarted = tick()
+        while AUTO_DUNGEON_LOOP and game.PlaceId == DUNGEON_PLACE_ID
+            and tick() - returnStarted < 120 do
+            task.wait(0.5)
+        end
+        if AUTO_DUNGEON_LOOP and game.PlaceId == LOBBY_PLACE_ID then
+            print("[Dungeon Loop] กลับล็อบบี้แล้ว จะเริ่มดันเจี้ยนรอบใหม่อัตโนมัติ")
+            task.wait(2)
+        elseif AUTO_DUNGEON_LOOP then
+            warn("[Dungeon Loop] ยังไม่ยืนยันว่ากลับล็อบบี้แล้ว จะไม่กด Start ซ้ำในดันเจี้ยน")
+        end
     end
 end
 
