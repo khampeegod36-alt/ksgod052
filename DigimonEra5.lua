@@ -448,7 +448,7 @@ closeSettingsBtn.MouseButton1Click:Connect(function()
 end)
 
 refreshDungeonSettingsUI()
-env.DigimonEraDungeonLoop = env.DigimonEraDungeonLoop == true
+env.DigimonEraDungeonLoop = true -- เปิด Dungeon Loop เป็นค่าเริ่มต้นทุกครั้งที่เริ่มสคริปต์
 local AUTO_DUNGEON_LOOP = env.DigimonEraDungeonLoop
 
 -- HEAL SETTING UI
