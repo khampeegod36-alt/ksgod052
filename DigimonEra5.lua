@@ -1384,6 +1384,26 @@ local function getHealItemControls()
     }
 end
 
+-- คลิกปุ่ม GUI แบบเมาส์จริงสำหรับ Auto Heal เท่านั้น.
+-- ไม่แก้ fireButton กลาง เพราะระบบอื่นใช้งานอยู่แล้ว.
+local function clickHealGuiButton(button)
+    if not button or not button.Parent or not button.Visible or not button.Active then
+        return false
+    end
+
+    local pos = button.AbsolutePosition
+    local size = button.AbsoluteSize
+    local x = math.floor(pos.X + size.X / 2)
+    local y = math.floor(pos.Y + size.Y / 2)
+
+    local ok = pcall(function()
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game)
+        task.wait(0.06)
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game)
+    end)
+    return ok
+end
+
 -- เลือกยาและ Equip เฉพาะเมื่อสถานะเป็น Equip
 local function ensureHealPotionEquipped()
     if isEquipping then return false end
@@ -1410,17 +1430,17 @@ local function ensureHealPotionEquipped()
     local ok, err = pcall(function()
         -- เลือกรายการยาเพื่อให้ InfoFrame แสดงยาตัวนี้
         if controls.item:IsA("GuiButton") then
-            fireButton(controls.item)
+            clickHealGuiButton(controls.item)
         end
 
-        task.wait(0.2)
+        task.wait(0.35)
 
         -- ตรวจสถานะอีกครั้งหลังเลือกยา
         local updated = getHealItemControls()
         if updated and updated.modeName
             and updated.modeName.Text == "Equip"
             and updated.equip.Visible then
-            fireButton(updated.equip)
+            clickHealGuiButton(updated.equip)
         end
     end)
 
