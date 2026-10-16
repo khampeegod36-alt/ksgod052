@@ -1324,11 +1324,36 @@ local function getHealItemControls()
     if not itemBox then return nil end
 
     local scrolling = itemBox:FindFirstChild("ScrollingFrame", true)
+
+    -- Inventory item Instances are often named generic IDs; the potion name is
+    -- displayed by a descendant TextLabel. Match both Instance.Name and UI text.
+    local function isPotionName(value)
+        value = tostring(value or ""):lower():gsub("%s+", " ")
+        return value == HEAL_ITEM_NAME:lower()
+            or value == HEAL_ITEM_NAME_FALLBACK:lower()
+    end
+
     local function findPotion(container)
         if not container then return nil end
-        return container:FindFirstChild(HEAL_ITEM_NAME, true)
-            or container:FindFirstChild(HEAL_ITEM_NAME_FALLBACK, true)
+        if isPotionName(container.Name) then return container end
+
+        for _, obj in ipairs(container:GetDescendants()) do
+            if isPotionName(obj.Name) then return obj end
+            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+                if isPotionName(obj.Text) then
+                    -- Return the row/button that owns the displayed potion name.
+                    local ancestor = obj
+                    while ancestor and ancestor ~= container do
+                        if ancestor:IsA("GuiButton") then return ancestor end
+                        ancestor = ancestor.Parent
+                    end
+                    return obj
+                end
+            end
+        end
+        return nil
     end
+
     local item = findPotion(scrolling) or findPotion(itemBox)
 
     local info = itemBox:FindFirstChild("InfoFrame", true)
@@ -1391,14 +1416,16 @@ local function ensureHealPotionEquipped()
         -- จึงรองรับทั้งกรณีตัวรายการเป็นปุ่ม และกรณีต้องคลิกปุ่มลูก
         local selected = false
         if controls.item:IsA("GuiButton") then
-            selected = clickHealGuiButton(controls.item)
+            -- Prefer firing the GUI's actual connected handler; a coordinate
+            -- click can report success without selecting the inventory row.
+            selected = fireButton(controls.item)
+            if not selected then selected = clickHealGuiButton(controls.item) end
         else
             for _, child in ipairs(controls.item:GetDescendants()) do
                 if child:IsA("GuiButton") and child.Visible and child.Active then
-                    if clickHealGuiButton(child) then
-                        selected = true
-                        break
-                    end
+                    selected = fireButton(child)
+                    if not selected then selected = clickHealGuiButton(child) end
+                    if selected then break end
                 end
             end
         end
@@ -1466,15 +1493,15 @@ local function triggerSlot4Potion()
 
     for _, button in ipairs(candidates) do
         if button.Parent and button.Visible and button.Active then
-            -- ส่งคลิก GUI จริงก่อน เพื่อให้ทำงานกับปุ่มบน UI มือถือด้วย
-            if clickHealGuiButton(button) then
-                print("[Auto Heal] Clicked QuickItem button:", button:GetFullName())
-                return true, "คลิกปุ่มใช้ยาจาก QuickItem แล้ว; กำลังตรวจ HP"
-            end
-            -- Fallback เฉพาะเมื่อการคลิกจริงส่งไม่สำเร็จ ไม่ยิงซ้ำหลังคลิกสำเร็จ
+            -- Prefer the button's connected Activated/MouseButton handler so
+            -- PC and mobile controller buttons use the same game callback.
             if fireButton(button) then
                 print("[Auto Heal] Fired QuickItem button:", button:GetFullName())
                 return true, "ส่งคำสั่งปุ่มใช้ยาจาก QuickItem แล้ว; กำลังตรวจ HP"
+            end
+            if clickHealGuiButton(button) then
+                print("[Auto Heal] Clicked QuickItem button:", button:GetFullName())
+                return true, "คลิกปุ่มใช้ยาจาก QuickItem แล้ว; กำลังตรวจ HP"
             end
         end
     end
