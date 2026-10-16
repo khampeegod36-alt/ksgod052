@@ -15,7 +15,7 @@ local player = Players.LocalPlayer
 
 -- CONFIG
 local DIGIMON_SCRIPT_URL =
-    "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra4.lua"
+    "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra5.lua"
 
 local UI_NAME ="DigimonEra5_MultiUI"
 local MIN_DISTANCE = 30
@@ -76,7 +76,7 @@ local function setupTeleportQueue()
         local Players = game:GetService("Players")
         local CoreGui = game:GetService("CoreGui")
         local player = Players.LocalPlayer
-        local UI_NAME = "DigimonEra4_MultiUI"
+        local UI_NAME = "DigimonEra5_MultiUI"
 
         local function hasUI(parent)
             return parent ~= nil
@@ -94,7 +94,7 @@ local function setupTeleportQueue()
         end
 
         local ok, err = pcall(function()
-            local url = "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra4.lua"
+            local url = "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra5.lua"
             local src = game:HttpGet(url, true)
             local fn, loadErr = loadstring(src)
 
@@ -1640,17 +1640,36 @@ local function ensureHealPotionEquipped(mode)
                 end
             end
         else
-            -- PC inventory confirmed in-game: the potion row itself is a TextButton
-            -- at Main.ItemBox.ScrollingFrame["Single Heal Potion S"]. Prefer a real
-            -- visible UI click so the game's item-selection handler actually runs;
-            -- use the signal helper only as fallback.
+            -- PC inventory method confirmed by the user's live test:
+            -- fire the potion TextButton's Activated connections, then verify UI state.
+            -- Use an actual visible click only if the callback method is unavailable.
+            local function fireActivatedConnections(button)
+                if not button or not button:IsA("GuiButton") then return false end
+                local okConnections, connections = pcall(function()
+                    return getconnections(button.Activated)
+                end)
+                if not okConnections or type(connections) ~= "table" or #connections == 0 then
+                    return false
+                end
+                local fired = false
+                for _, conn in ipairs(connections) do
+                    if conn.Enabled then
+                        local okFire = pcall(function() conn:Fire() end)
+                        if okFire then fired = true end
+                    end
+                end
+                return fired
+            end
+
             if controls.item:IsA("GuiButton") then
-                selected = clickHealGuiButton(controls.item)
+                selected = fireActivatedConnections(controls.item)
+                if not selected then selected = clickHealGuiButton(controls.item) end
                 if not selected then selected = fireButton(controls.item) end
             else
                 for _, child in ipairs(controls.item:GetDescendants()) do
                     if child:IsA("GuiButton") and child.Visible and child.Active then
-                        selected = clickHealGuiButton(child)
+                        selected = fireActivatedConnections(child)
+                        if not selected then selected = clickHealGuiButton(child) end
                         if not selected then selected = fireButton(child) end
                         if selected then break end
                     end
@@ -1664,20 +1683,43 @@ local function ensureHealPotionEquipped(mode)
             warn("[Auto Heal " .. tostring(mode or "PC") .. "] พบรายการยา แต่ส่งการเลือกไอเทมไม่สำเร็จ")
         end
 
-        task.wait(0.4)
+        -- Wait for the selected potion to populate InfoFrame before touching Equip.
+        task.wait(mobileMode and 0.4 or 0.5)
         local updated = getHealItemControls()
         if updated and updated.modeName and modeText(updated):lower() == "equip"
             and updated.equip and updated.equip.Visible and updated.equip.Active then
             local equipClicked = false
             if mobileMode then
                 equipClicked = clickMobileTarget(updated.equip)
+                print("[Auto Heal " .. tostring(mode or "PC") .. "] แตะ Equip:", equipClicked, updated.equip:GetFullName())
             else
-                -- Prefer the actual visible PC Equip button click; only fall back
-                -- to firing the GUI signal if the input click could not be sent.
-                equipClicked = clickHealGuiButton(updated.equip)
-                if not equipClicked then equipClicked = fireButton(updated.equip) end
+                -- PC method from the confirmed standalone test: fire Activated,
+                -- wait, then re-read ModeName. If it did not react, use a real UI click.
+                local okConnections, connections = pcall(function()
+                    return getconnections(updated.equip.Activated)
+                end)
+                if okConnections and type(connections) == "table" then
+                    for _, conn in ipairs(connections) do
+                        if conn.Enabled then
+                            local okFire = pcall(function() conn:Fire() end)
+                            if okFire then equipClicked = true end
+                        end
+                    end
+                end
+                print("[Auto Heal PC] ส่ง callback Equip:", equipClicked, updated.equip:GetFullName())
+                task.wait(0.45)
+                local afterCallback = getHealItemControls()
+                if afterCallback and afterCallback.modeName
+                    and modeText(afterCallback):lower() == "remove" then
+                    updated = afterCallback
+                elseif afterCallback and afterCallback.modeName
+                    and modeText(afterCallback):lower() == "equip"
+                    and afterCallback.equip and afterCallback.equip.Visible and afterCallback.equip.Active then
+                    local clickSent = clickHealGuiButton(afterCallback.equip)
+                    if not clickSent then clickSent = fireButton(afterCallback.equip) end
+                    print("[Auto Heal PC] Fallback คลิก Equip:", clickSent)
+                end
             end
-            print("[Auto Heal " .. tostring(mode or "PC") .. "] แตะ/คลิก Equip:", equipClicked, updated.equip:GetFullName())
         end
     end)
 
@@ -2932,4 +2974,3 @@ task.spawn(function()
         task.wait(0.2)
     end
 end)
-
