@@ -1673,6 +1673,74 @@ end
 -- ใช้ยาผ่านปุ่ม QuickItem; บาง UI มือถือ QuickItem เป็น Frame
 -- และปุ่มกดจริงอยู่ข้างใน ไม่ใช่ตัว QuickItem เอง.
 local function triggerSlot4Potion(mode, forceGui)
+    -- Mobile: first reuse the old, previously working UI method: locate the
+    -- visible button whose own Text is exactly "4" and tap that slot directly.
+    -- Keep this scoped to Auto Heal; do not change shared input helpers.
+    if tostring(mode) == "Mobile" then
+        local pg = player:FindFirstChild("PlayerGui")
+        if pg then
+            local function visibleThroughParents(obj)
+                local node = obj
+                while node and node ~= pg do
+                    if node:IsA("GuiObject") and not node.Visible then
+                        return false
+                    end
+                    node = node.Parent
+                end
+                return true
+            end
+
+            local slot4Candidates = {}
+            for _, obj in ipairs(pg:GetDescendants()) do
+                if obj:IsA("TextButton") or obj:IsA("ImageButton") then
+                    local buttonText = ""
+                    pcall(function() buttonText = tostring(obj.Text) end)
+                    if buttonText:match("^%s*4%s*$")
+                        and obj.Visible and obj.Active
+                        and visibleThroughParents(obj) then
+                        table.insert(slot4Candidates, obj)
+                    end
+                end
+            end
+
+            -- Prefer the button inside HUD.QuickItem when it is among the exact
+            -- text matches; otherwise only use a unique exact "4" candidate.
+            local hud = pg:FindFirstChild("HUD")
+            local quickItem = hud and hud:FindFirstChild("QuickItem", true)
+            local target = nil
+            if quickItem then
+                for _, candidate in ipairs(slot4Candidates) do
+                    if candidate == quickItem or candidate:IsDescendantOf(quickItem) then
+                        target = candidate
+                        break
+                    end
+                end
+            end
+            if not target and #slot4Candidates == 1 then
+                target = slot4Candidates[1]
+            end
+
+            if target then
+                if clickHealMobileButton(target) then
+                    print("[Auto Heal Mobile] แตะปุ่มช่อง 4 ตาม UI Text=4:", target:GetFullName())
+                    return true, "แตะปุ่มช่อง 4 แล้ว; กำลังตรวจ HP"
+                end
+                if fireButton(target) then
+                    print("[Auto Heal Mobile] เรียก callback ปุ่มช่อง 4 Text=4:", target:GetFullName())
+                    return true, "เรียก callback ช่อง 4 แล้ว; กำลังตรวจ HP"
+                end
+                warn("[Auto Heal Mobile] พบปุ่ม Text=4 แต่ส่งการแตะไม่สำเร็จ:", target:GetFullName())
+            elseif #slot4Candidates > 1 then
+                local names = {}
+                for i, candidate in ipairs(slot4Candidates) do
+                    if i > 8 then break end
+                    table.insert(names, candidate:GetFullName())
+                end
+                warn("[Auto Heal Mobile] พบปุ่ม Text=4 หลายปุ่มและระบุช่อง 4 ไม่ชัด; จะตรวจ HUD.QuickItem ต่อ: " .. table.concat(names, " | "))
+            end
+        end
+    end
+
     -- PC fallback: the game's keyboard hotkey for quick slot 4 can work even
     -- when QuickItem is only a container and exposes no identifiable child button.
     if tostring(mode) ~= "Mobile" and not forceGui then
