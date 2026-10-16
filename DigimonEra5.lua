@@ -2496,28 +2496,130 @@ local function selectForestAndStart()
     return fireButton(secondStart)
 end
 
+-- Auto Evacuate is allowed only after the actual final room of Floor 3
+-- has reached 100%, and the HUD confirms evacuation progress is complete.
 local function isMapThreeComplete()
     local mapFrame = getMapFrame()
     local scrolling = mapFrame and mapFrame:FindFirstChild("ScrollingFrame")
     local mapThree = scrolling and scrolling:FindFirstChild("Map3")
-    if not mapThree then return false end
+    local finalRoom = mapThree and mapThree:FindFirstChild("Layer_3_SmallMap_7")
 
-    local foundRoom = false
-    for _, room in ipairs(mapThree:GetChildren()) do
-        if room:IsA("TextButton")
-            and room.Name:match("^Layer_%d+_SmallMap_%d+$") then
-            local locked = room:FindFirstChild("LockedFrame")
-            if not (locked and locked.Visible) then
-                foundRoom = true
-                local percent = readExplorePercent(room)
-                if percent == nil or percent < 100 then
-                    return false
-                end
-            end
-        end
+    if not finalRoom or not finalRoom:IsA("TextButton") then
+        return false
     end
 
-    return foundRoom
+    local roomPercent = readExplorePercent(finalRoom)
+    if roomPercent == nil or roomPercent < 100 then
+        return false
+    end
+
+    local pg = player:FindFirstChild("PlayerGui")
+    local hud = pg and pg:FindFirstChild("HUD")
+    local stability = hud and hud:FindFirstChild("StabilityPointFrame")
+    local progressFrame = stability and stability:FindFirstChild("ProgressFrame")
+    local progressLabel = progressFrame and progressFrame:FindFirstChild("Progress")
+    local progressText = progressLabel and progressLabel:IsA("TextLabel")
+        and tostring(progressLabel.Text) or ""
+
+    -- The user's in-game check confirmed the room cannot be evacuated before 100%.
+    return progressText:match("100%s*%%") ~= nil
+end
+
+local function autoEvacuateToLobby()
+    local pg = player:FindFirstChild("PlayerGui")
+    local hud = pg and pg:FindFirstChild("HUD")
+    local buttons = hud and hud:FindFirstChild("ButtonsFrame")
+    local evacuate = buttons and buttons:FindFirstChild("EvacuateButton")
+    local imageButton = evacuate and evacuate:FindFirstChild("ImageButton")
+
+    if not imageButton or not fireButton(imageButton) then
+        warn("[Auto Evacuate] กด EvacuateButton ไม่สำเร็จ")
+        return false
+    end
+    print("[Auto Evacuate] กด Evacuate แล้ว กำลังรอประตูชั้น 1")
+
+    -- The extraction portal appears after Evacuate sends the player back to Floor 1.
+    local portal
+    local waitStarted = tick()
+    repeat
+        local gameMap = workspace:FindFirstChild("GameMap")
+        local layer1 = gameMap and gameMap:FindFirstChild("Layer_1_SmallMap_1")
+        local decorations = layer1 and layer1:FindFirstChild("Decorations")
+        portal = decorations and decorations:FindFirstChild("ExtractionPortal")
+        if portal then break end
+        if not AUTO_DUNGEON_LOOP then return false end
+        task.wait(0.25)
+    until tick() - waitStarted >= 15
+
+    if not portal then
+        warn("[Auto Evacuate] ไม่พบ ExtractionPortal หลังอพยพ")
+        return false
+    end
+
+    local mainPart = portal:FindFirstChild("MainPart")
+    local prompt = portal:FindFirstChildWhichIsA("ProximityPrompt", true)
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+
+    if not mainPart or not prompt or not root then
+        warn("[Auto Evacuate] ขาด MainPart, ProximityPrompt หรือตัวละคร")
+        return false
+    end
+
+    -- Match the tested method: overlap the portal center and raise the character 3 studs.
+    root.CFrame = CFrame.new(mainPart.Position + Vector3.new(0, 3, 0))
+    task.wait(0.5)
+
+    if not prompt.Enabled or type(fireproximityprompt) ~= "function" then
+        warn("[Auto Evacuate] Prompt ไม่พร้อม หรือไม่มี fireproximityprompt")
+        return false
+    end
+
+    local promptOK = pcall(function()
+        fireproximityprompt(prompt)
+    end)
+    if not promptOK then
+        warn("[Auto Evacuate] เรียก Rotating Prompt ไม่สำเร็จ")
+        return false
+    end
+
+    local model = pg and pg:FindFirstChild("Model")
+    local extractFrame = model and model:FindFirstChild("ExtractFrame")
+    waitStarted = tick()
+    while AUTO_DUNGEON_LOOP and tick() - waitStarted < 12 do
+        if extractFrame and extractFrame.Visible then break end
+        task.wait(0.25)
+    end
+
+    if not extractFrame or not extractFrame.Visible then
+        warn("[Auto Evacuate] หน้า Extract Rewards ไม่เปิด")
+        return false
+    end
+
+    local backButton = extractFrame:FindFirstChild("BackToLooby")
+    if not backButton or not backButton.Visible or not backButton.Active then
+        warn("[Auto Evacuate] ไม่พบปุ่ม BackToLooby ที่พร้อมใช้งาน")
+        return false
+    end
+
+    -- This exact button signal was already tested successfully by the user.
+    local backOK = false
+    if type(firesignal) == "function" then
+        backOK = pcall(function()
+            firesignal(backButton.Activated)
+        end)
+    end
+    if not backOK then
+        backOK = fireButton(backButton)
+    end
+
+    if not backOK then
+        warn("[Auto Evacuate] เรียก BackToLooby ไม่สำเร็จ")
+        return false
+    end
+
+    print("[Auto Evacuate] เรียก BackToLooby แล้ว กำลังกลับล็อบบี้")
+    return true
 end
 
 local function runDungeonRound()
@@ -2559,24 +2661,14 @@ local function runDungeonRound()
 
         if not AUTO_DUNGEON_LOOP then return end
 
-        if completed then
-            sendNotification("Dungeon Loop", "เคลียร์ถึงชั้น 3 แล้ว กำลังกลับล็อบบี้")
-        else
-            warn("[Dungeon Loop] ครบเวลาป้องกัน 15 นาที แต่ยังตรวจไม่พบว่า Map3 เคลียร์ครบ")
-            sendNotification("Dungeon Loop", "หมดเวลาป้องกัน กำลังกลับล็อบบี้")
+        if not completed then
+            warn("[Dungeon Loop] ยังยืนยัน Layer_3_SmallMap_7 ที่ 100% ไม่ได้ จึงยังไม่อพยพ")
+            sendNotification("Dungeon Loop", "ยังไม่ครบชั้น 3 ที่ 100% — จะยังไม่อพยพ")
+            return
         end
 
-        local pg = player:FindFirstChild("PlayerGui")
-        local hud = pg and pg:FindFirstChild("HUD")
-        local buttons = hud and hud:FindFirstChild("ButtonsFrame")
-        local evacuate = buttons and buttons:FindFirstChild("EvacuateButton")
-        local imageButton = evacuate and evacuate:FindFirstChild("ImageButton")
-
-        if imageButton then
-            fireButton(imageButton)
-        else
-            warn("[Dungeon Loop] ไม่พบ EvacuateButton")
-        end
+        sendNotification("Dungeon Loop", "ชั้น 3 ห้อง 7 ครบ 100% แล้ว กำลังอพยพกลับล็อบบี้")
+        autoEvacuateToLobby()
     end
 end
 
