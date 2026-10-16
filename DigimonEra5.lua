@@ -1460,8 +1460,52 @@ local function clickHealGuiButton(button)
     return ok
 end
 
+-- Mobile: ส่ง touch จริงก่อน เพราะ firesignal/MouseButton อาจเรียก callback
+-- แต่ไม่ทำให้ UI มือถือรับเหตุการณ์แตะช่องยา.
+local function clickHealMobileButton(button)
+    if not button or not button.Parent or not button.Visible or not button.Active then
+        return false
+    end
+    local pos, size = button.AbsolutePosition, button.AbsoluteSize
+    local x = math.floor(pos.X + size.X / 2)
+    local y = math.floor(pos.Y + size.Y / 2)
+    local sentTouch = false
+    pcall(function()
+        -- VirtualInputManager touch states: begin -> end.
+        if VirtualInputManager.SendTouchEvent then
+            VirtualInputManager:SendTouchEvent(0, 0, x, y)
+            task.wait(0.08)
+            VirtualInputManager:SendTouchEvent(0, 2, x, y)
+            sentTouch = true
+        end
+    end)
+    if sentTouch then
+        task.wait(0.15)
+        return true
+    end
+    -- Fallback for clients/executors that do not expose SendTouchEvent.
+    return clickHealGuiButton(button)
+end
+
+-- Mobile inventory controls may be Frames; tap the real child GuiButton when present.
+local function clickMobileTarget(target)
+    if not target or not target.Parent then return false end
+    if target:IsA("GuiButton") and target.Visible and target.Active then
+        return clickHealMobileButton(target)
+    end
+    for _, child in ipairs(target:GetDescendants()) do
+        if child:IsA("GuiButton") and child.Visible and child.Active then
+            if clickHealMobileButton(child) then return true end
+        end
+    end
+    if target:IsA("GuiObject") and target.Visible and target.Active then
+        return clickHealMobileButton(target)
+    end
+    return false
+end
+
 -- เลือกยาและ Equip เฉพาะเมื่อสถานะเป็น Equip
-local function ensureHealPotionEquipped()
+local function ensureHealPotionEquipped(mode)
     if isEquipping then return false end
     if tick() - lastEquipAttempt < 2 then return false end
 
@@ -1471,75 +1515,85 @@ local function ensureHealPotionEquipped()
         return false
     end
 
-    -- ถ้าเป็น Remove แปลว่าใส่ยาแล้ว ห้ามกด Equip ซ้ำ
-    if controls.modeName.Text == "Remove" then
+    local function modeText(c)
+        return c and c.modeName and tostring(c.modeName.Text):match("^%s*(.-)%s*$") or ""
+    end
+    if modeText(controls):lower() == "remove" then
         return true
     end
-
-    if controls.modeName.Text ~= "Equip" then
-        healDebug("พบยาแต่สถานะปุ่มไม่ใช่ Equip: " .. tostring(controls.modeName.Text))
+    if modeText(controls):lower() ~= "equip" then
+        healDebug("พบยาแต่สถานะปุ่มไม่ใช่ Equip: " .. modeText(controls))
         return false
     end
 
     isEquipping = true
     lastEquipAttempt = tick()
-
+    local mobileMode = tostring(mode) == "Mobile"
     local ok, err = pcall(function()
-        -- เลือกรายการยา: บนมือถือรายการอาจเป็น Frame ที่มีปุ่มลูกอยู่ข้างใน
-        -- จึงรองรับทั้งกรณีตัวรายการเป็นปุ่ม และกรณีต้องคลิกปุ่มลูก
         local selected = false
-        if controls.item:IsA("GuiButton") then
-            selected = fireButton(controls.item)
-            if not selected then selected = clickHealGuiButton(controls.item) end
-        else
-            -- Prefer an explicit item-select button inside the row. If none exists,
-            -- tap the visible row itself (mobile inventory rows are often Frames).
-            for _, child in ipairs(controls.item:GetDescendants()) do
-                if child:IsA("GuiButton") and child.Visible and child.Active then
-                    selected = fireButton(child)
-                    if not selected then selected = clickHealGuiButton(child) end
-                    if selected then break end
+        -- On mobile, prioritize actual touch input. Firing a GuiButton signal
+        -- can report success without the game's inventory selection handler running.
+        if mobileMode then
+            if controls.item:IsA("GuiButton") then
+                selected = clickMobileTarget(controls.item)
+            else
+                for _, child in ipairs(controls.item:GetDescendants()) do
+                    if child:IsA("GuiButton") and child.Visible and child.Active then
+                        selected = clickMobileTarget(child)
+                        if selected then break end
+                    end
+                end
+                if not selected and controls.item:IsA("GuiObject") and controls.item.Active then
+                    selected = clickMobileTarget(controls.item)
                 end
             end
-            if not selected and controls.item:IsA("GuiObject") then
-                selected = clickHealGuiButton(controls.item)
+        else
+            if controls.item:IsA("GuiButton") then
+                selected = fireButton(controls.item)
+                if not selected then selected = clickHealGuiButton(controls.item) end
+            else
+                for _, child in ipairs(controls.item:GetDescendants()) do
+                    if child:IsA("GuiButton") and child.Visible and child.Active then
+                        selected = fireButton(child)
+                        if not selected then selected = clickHealGuiButton(child) end
+                        if selected then break end
+                    end
+                end
+                if not selected and controls.item:IsA("GuiObject") and controls.item.Active then
+                    selected = clickHealGuiButton(controls.item)
+                end
             end
         end
         if not selected then
-            warn("[Auto Heal] พบรายการยา แต่คลิกเลือกไม่ได้; ตรวจชนิด/สถานะปุ่มใน UI มือถือ")
+            warn("[Auto Heal " .. tostring(mode or "PC") .. "] พบรายการยา แต่ส่งการเลือกไอเทมไม่สำเร็จ")
         end
 
-        task.wait(0.35)
-
-        -- ตรวจสถานะอีกครั้งหลังเลือกยา
+        task.wait(0.4)
         local updated = getHealItemControls()
-        if updated and updated.modeName
-            and updated.modeName.Text == "Equip"
-            and updated.equip.Visible then
-            local equipClicked = fireButton(updated.equip)
-            if not equipClicked then clickHealGuiButton(updated.equip) end
+        if updated and updated.modeName and modeText(updated):lower() == "equip"
+            and updated.equip and updated.equip.Visible and updated.equip.Active then
+            local equipClicked = false
+            if mobileMode then
+                equipClicked = clickMobileTarget(updated.equip)
+            else
+                equipClicked = fireButton(updated.equip)
+                if not equipClicked then equipClicked = clickHealGuiButton(updated.equip) end
+            end
+            print("[Auto Heal " .. tostring(mode or "PC") .. "] แตะ/คลิก Equip:", equipClicked, updated.equip:GetFullName())
         end
     end)
 
-    task.wait(0.25)
-
+    task.wait(0.3)
     local updated = getHealItemControls()
-    local equipped = updated
-        and updated.modeName
-        and updated.modeName.Text == "Remove"
-
+    local equipped = updated and updated.modeName and modeText(updated):lower() == "remove"
     isEquipping = false
 
-    if not ok then
-        warn("[Auto Heal] Equip error:", err)
-    end
-
+    if not ok then warn("[Auto Heal] Equip error:", err) end
     if equipped then
-        print("[Auto Heal] Potion equipped")
+        print("[Auto Heal " .. tostring(mode or "PC") .. "] ยาอยู่ในช่องแล้ว")
         return true
     end
-
-    healDebug("คลิก/Equip ยาไม่สำเร็จ; กรุณาเปิด Inventory ค้างไว้ แล้วดูชื่อ warning นี้ใน Console")
+    healDebug("เลือก/Equip ยาไม่สำเร็จ; โหมด=" .. tostring(mode or "PC") .. "; สถานะ=" .. modeText(updated or {}))
     return false
 end
 
@@ -1600,14 +1654,26 @@ local function triggerSlot4Potion(mode)
         return false, "ช่องยา 4 ยังไม่พร้อมใช้งาน"
     end
 
-    -- Prefer the game's connected callback; use GUI click as fallback.
-    if fireButton(button) then
-        print("[Auto Heal " .. tostring(mode or "PC") .. "] Fired slot 4 button:", button:GetFullName())
-        return true, "ส่งคำสั่งช่องยา 4 แล้ว; กำลังตรวจ HP"
-    end
-    if clickHealGuiButton(button) then
-        print("[Auto Heal " .. tostring(mode or "PC") .. "] Clicked slot 4 button:", button:GetFullName())
-        return true, "คลิกช่องยา 4 แล้ว; กำลังตรวจ HP"
+    -- Mobile must use a touch event first. fireButton can report that a signal
+    -- was fired even when the mobile UI did not receive a real tap.
+    if tostring(mode) == "Mobile" then
+        if clickHealMobileButton(button) then
+            print("[Auto Heal Mobile] ส่ง Touch ไปช่องยา 4:", button:GetFullName())
+            return true, "ส่ง Touch ช่องยา 4 แล้ว; กำลังตรวจ HP"
+        end
+        if fireButton(button) then
+            print("[Auto Heal Mobile] Fired slot 4 callback:", button:GetFullName())
+            return true, "เรียก callback ช่องยา 4 แล้ว; กำลังตรวจ HP"
+        end
+    else
+        if fireButton(button) then
+            print("[Auto Heal PC] Fired slot 4 button:", button:GetFullName())
+            return true, "ส่งคำสั่งช่องยา 4 แล้ว; กำลังตรวจ HP"
+        end
+        if clickHealGuiButton(button) then
+            print("[Auto Heal PC] Clicked slot 4 button:", button:GetFullName())
+            return true, "คลิกช่องยา 4 แล้ว; กำลังตรวจ HP"
+        end
     end
 
     return false, "กดช่องยา 4 ไม่สำเร็จ"
@@ -1651,22 +1717,10 @@ task.spawn(function()
 
                 isHealing = true
 
-                -- ใส่ยาก่อน หากยังไม่ได้ใส่
-                print("[Auto Heal " .. activeHealMode .. "] ตรวจ HP=" .. tostring(curHP) .. "/" .. tostring(maxHP) .. "; กำลังตรวจช่องยา 4")
-                local equipped = ensureHealPotionEquipped()
-                if not equipped then
-                    isHealing = false
-                    return
-                end
-
-                -- ใช้ยาเฉพาะเมื่อสถานะเป็น Remove
-                local controls = getHealItemControls()
-                if not controls or not controls.modeName
-                    or controls.modeName.Text ~= "Remove" then
-                    isHealing = false
-                    return
-                end
-
+                -- ยืนยันจากผู้ใช้ว่ายาติดตั้งอยู่ช่อง 4 แล้ว:
+                -- ข้าม Inventory/Equip ทั้งหมด และกดช่อง 4 โดยตรง
+                -- เพื่อไม่ให้สถานะ ModeName ใน Inventory ขวางการใช้ยา
+                print("[Auto Heal " .. activeHealMode .. "] HP=" .. tostring(curHP) .. "/" .. tostring(maxHP) .. "; กดใช้ยาช่อง 4 โดยตรง")
                 local used, result = triggerSlot4Potion(activeHealMode)
                 if used then
                     -- Cooldown begins after a command was actually sent.
