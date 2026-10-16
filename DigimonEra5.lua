@@ -1313,20 +1313,27 @@ local function getHealItemControls()
     local pg = player:FindFirstChild("PlayerGui")
     if not pg then return nil end
 
+    -- PC and mobile UI can place the inventory controls at different depths.
+    -- Search descendants rather than assuming ItemBox/ScrollingFrame are direct children.
     local main = pg:FindFirstChild("Main")
-    local itemBox = main and main:FindFirstChild("ItemBox")
+    local itemBox = main and main:FindFirstChild("ItemBox", true)
+    if not itemBox then
+        -- Some UI versions parent the inventory outside Main.
+        itemBox = pg:FindFirstChild("ItemBox", true)
+    end
     if not itemBox then return nil end
 
-    local scrolling = itemBox:FindFirstChild("ScrollingFrame")
-    local item = scrolling and scrolling:FindFirstChild(HEAL_ITEM_NAME)
-    -- Prefer the original instance name, then try the inventory's displayed name.
-    if not item and scrolling then
-        item = scrolling:FindFirstChild(HEAL_ITEM_NAME_FALLBACK)
+    local scrolling = itemBox:FindFirstChild("ScrollingFrame", true)
+    local function findPotion(container)
+        if not container then return nil end
+        return container:FindFirstChild(HEAL_ITEM_NAME, true)
+            or container:FindFirstChild(HEAL_ITEM_NAME_FALLBACK, true)
     end
+    local item = findPotion(scrolling) or findPotion(itemBox)
 
-    local info = itemBox:FindFirstChild("InfoFrame")
-    local equip = info and info:FindFirstChild("ItemEquip")
-    local modeName = equip and equip:FindFirstChild("ModeName")
+    local info = itemBox:FindFirstChild("InfoFrame", true)
+    local equip = info and info:FindFirstChild("ItemEquip", true)
+    local modeName = equip and equip:FindFirstChild("ModeName", true)
 
     return {
         itemBox = itemBox,
@@ -1380,9 +1387,23 @@ local function ensureHealPotionEquipped()
     lastEquipAttempt = tick()
 
     local ok, err = pcall(function()
-        -- เลือกรายการยาเพื่อให้ InfoFrame แสดงยาตัวนี้
+        -- เลือกรายการยา: บนมือถือรายการอาจเป็น Frame ที่มีปุ่มลูกอยู่ข้างใน
+        -- จึงรองรับทั้งกรณีตัวรายการเป็นปุ่ม และกรณีต้องคลิกปุ่มลูก
+        local selected = false
         if controls.item:IsA("GuiButton") then
-            clickHealGuiButton(controls.item)
+            selected = clickHealGuiButton(controls.item)
+        else
+            for _, child in ipairs(controls.item:GetDescendants()) do
+                if child:IsA("GuiButton") and child.Visible and child.Active then
+                    if clickHealGuiButton(child) then
+                        selected = true
+                        break
+                    end
+                end
+            end
+        end
+        if not selected then
+            warn("[Auto Heal] พบรายการยา แต่คลิกเลือกไม่ได้; ตรวจชนิด/สถานะปุ่มใน UI มือถือ")
         end
 
         task.wait(0.35)
@@ -1417,30 +1438,48 @@ local function ensureHealPotionEquipped()
     return false
 end
 
--- ส่งคำสั่งใช้ยาผ่าน HUD.QuickItem (ช่องไอเทมที่ใช้ใน UI นี้)
+-- ใช้ยาผ่านปุ่ม QuickItem; บาง UI มือถือ QuickItem เป็น Frame
+-- และปุ่มกดจริงอยู่ข้างใน ไม่ใช่ตัว QuickItem เอง.
 local function triggerSlot4Potion()
     local pg = player:FindFirstChild("PlayerGui")
     local hud = pg and pg:FindFirstChild("HUD")
     local quickItem = hud and hud:FindFirstChild("QuickItem", true)
 
-    if not quickItem or not quickItem:IsA("GuiButton") then
-        return false, "ไม่พบปุ่ม HUD.QuickItem"
+    if not quickItem then
+        return false, "ไม่พบ HUD.QuickItem"
     end
 
-    if not quickItem.Visible or not quickItem.Active then
-        return false, "ช่องยา 4 ยังไม่พร้อมใช้งาน"
+    local candidates = {}
+    if quickItem:IsA("GuiButton") then
+        table.insert(candidates, quickItem)
+    else
+        for _, child in ipairs(quickItem:GetDescendants()) do
+            if child:IsA("GuiButton") then
+                table.insert(candidates, child)
+            end
+        end
     end
 
-    -- คลิกช่องยา 4 ด้วย GUI click จริง แทน fireButton ซึ่งอาจเพียงยิง
-    -- Activated/MouseButton1Click โดยไม่ทำให้เกมใช้ไอเทมจริง
-    -- การยืนยัน HP ด้านล่างจะเป็นตัวตัดสินผล ไม่ถือว่าคลิกสำเร็จ = ใช้ยาสำเร็จ
-    local clicked = clickHealGuiButton(quickItem)
-
-    if clicked then
-        return true, "คลิกช่องยา 4 แล้ว; กำลังตรวจว่า HP เพิ่มจริงหรือไม่"
+    if #candidates == 0 then
+        return false, "พบ QuickItem แต่ไม่มีปุ่ม GuiButton อยู่ข้างใน"
     end
 
-    return false, "คลิกช่องยา 4 ไม่สำเร็จ"
+    for _, button in ipairs(candidates) do
+        if button.Parent and button.Visible and button.Active then
+            -- ส่งคลิก GUI จริงก่อน เพื่อให้ทำงานกับปุ่มบน UI มือถือด้วย
+            if clickHealGuiButton(button) then
+                print("[Auto Heal] Clicked QuickItem button:", button:GetFullName())
+                return true, "คลิกปุ่มใช้ยาจาก QuickItem แล้ว; กำลังตรวจ HP"
+            end
+            -- Fallback เฉพาะเมื่อการคลิกจริงส่งไม่สำเร็จ ไม่ยิงซ้ำหลังคลิกสำเร็จ
+            if fireButton(button) then
+                print("[Auto Heal] Fired QuickItem button:", button:GetFullName())
+                return true, "ส่งคำสั่งปุ่มใช้ยาจาก QuickItem แล้ว; กำลังตรวจ HP"
+            end
+        end
+    end
+
+    return false, "พบ QuickItem แต่คลิกปุ่มใช้ยาไม่สำเร็จ"
 end
 
 -- ตรวจ HP ซ้ำหลังใช้คำสั่ง เพื่อไม่รายงานว่าใช้ยาสำเร็จจากการกดปุ่มอย่างเดียว
