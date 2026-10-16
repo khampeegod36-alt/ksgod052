@@ -1,7 +1,7 @@
-print("[Digimon Era] SCRIPT STARTED")
+print("[Digimon Era] SCRIPT STARTED - GUI FIXED & VISIBLE")
 -- ================================================
 -- DIGIMON ERA AUTO FARM + AUTO FEED + AUTO EXPLORE + DUNGEON LOOP
--- SINGLE UI + TELEPORT QUEUE (FULL VERSION)
+-- (FULL VERSION 100% - GUI FIX)
 -- ================================================
 
 local Players = game:GetService("Players")
@@ -11,14 +11,13 @@ local VirtualUser = game:GetService("VirtualUser")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local CoreGui = game:GetService("CoreGui")
 
-
 local player = Players.LocalPlayer
 
 -- CONFIG
 local DIGIMON_SCRIPT_URL =
-    "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra4.lua"
+    "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra5.lua"
 
-local UI_NAME ="DigimonEra4_MultiUI"
+local UI_NAME ="DigimonEra5_MultiUI"
 local MIN_DISTANCE = 30
 local ARRIVAL_DISTANCE = 4
 local MAX_WALK_TIME = 10
@@ -27,7 +26,9 @@ local SEARCH_RADIUS = 500
 local AUTO_FARM = false
 local AUTO_CHEST = false
 local AUTO_DROPS = false
-local AUTO_HEAL = false
+local AUTO_HEAL = false -- legacy compatibility
+local AUTO_HEAL_PC = false
+local AUTO_HEAL_MOBILE = false
 local AUTO_FEED = false
 local AUTO_FEED_BUSY = false
 local AUTO_FEED_WORKER_RUNNING = false
@@ -38,7 +39,6 @@ local HEAL_DROP_AMOUNT = 500
 local visited = {}
 local openedChests = {}
 local collectedDrops = {}
-
 
 -- SINGLE INSTANCE: CLEAR OLD UI BEFORE REBUILDING
 local function removeOldUI(parent)
@@ -76,7 +76,7 @@ local function setupTeleportQueue()
         local Players = game:GetService("Players")
         local CoreGui = game:GetService("CoreGui")
         local player = Players.LocalPlayer
-        local UI_NAME = "DigimonEra4_MultiUI"
+        local UI_NAME = "DigimonEra5_MultiUI"
 
         local function hasUI(parent)
             return parent ~= nil
@@ -94,9 +94,9 @@ local function setupTeleportQueue()
         end
 
         local ok, err = pcall(function()
-        local url = "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra4.lua"
-        local src = game:HttpGet(url, true)
-        local fn, loadErr = loadstring(src)
+            local url = "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra5.lua"
+            local src = game:HttpGet(url, true)
+            local fn, loadErr = loadstring(src)
 
             if not fn then
                 error(loadErr or "โหลดสคริปต์ไม่สำเร็จ")
@@ -117,6 +117,7 @@ local function setupTeleportQueue()
 end
 
 setupTeleportQueue()
+
 -- ANTI AFK
 player.Idled:Connect(function()
     pcall(function()
@@ -144,35 +145,53 @@ local function sendNotification(title, text)
 end
 
 -- ================================================
--- UI
+-- UI SETUP
 -- ================================================
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = UI_NAME
 screenGui.ResetOnSpawn = false
+screenGui.Enabled = true
+screenGui.DisplayOrder = 999999
+screenGui.IgnoreGuiInset = true
 
-if gethui then
+local parentSuccess = false
+
+if type(gethui) == "function" then
     local ok, hui = pcall(gethui)
     if ok and hui then
-        screenGui.Parent = hui
-    else
-        screenGui.Parent = CoreGui
+        local pOk = pcall(function()
+            screenGui.Parent = hui
+        end)
+        if pOk then parentSuccess = true end
     end
-elseif syn and syn.protect_gui then
-    syn.protect_gui(screenGui)
-    screenGui.Parent = CoreGui
-else
+end
+
+if not parentSuccess and syn and syn.protect_gui then
+    pcall(function()
+        syn.protect_gui(screenGui)
+        screenGui.Parent = CoreGui
+        parentSuccess = true
+    end)
+end
+
+if not parentSuccess then
     local ok = pcall(function()
         screenGui.Parent = CoreGui
+        parentSuccess = true
     end)
-    if not ok then
+end
+
+if not parentSuccess then
+    pcall(function()
         screenGui.Parent = player:WaitForChild("PlayerGui")
-    end
+        parentSuccess = true
+    end)
 end
 
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 210, 0, 420)
+mainFrame.Size = UDim2.new(0, 210, 0, 480)
 mainFrame.Position = UDim2.new(0.75, 0, 0.2, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.Active = true
@@ -212,7 +231,7 @@ minCorner.Parent = minimizeBtn
 
 local contentContainer = Instance.new("Frame")
 contentContainer.Name = "ContentContainer"
-contentContainer.Size = UDim2.new(1, 0, 0, 385)
+contentContainer.Size = UDim2.new(1, 0, 0, 445)
 contentContainer.Position = UDim2.new(0, 0, 0, 30)
 contentContainer.BackgroundTransparency = 1
 contentContainer.Parent = mainFrame
@@ -226,7 +245,7 @@ minimizeBtn.MouseButton1Click:Connect(function()
         contentContainer.Visible = false
         minimizeBtn.Text = "+"
     else
-        mainFrame.Size = UDim2.new(0, 210, 0, 420)
+        mainFrame.Size = UDim2.new(0, 210, 0, 480)
         contentContainer.Visible = true
         minimizeBtn.Text = "-"
     end
@@ -251,39 +270,21 @@ local function createToggleButton(name, pos, defaultText)
     return btn
 end
 
-local farmBtn = createToggleButton(
-    "FarmBtn", UDim2.new(0.05, 0, 0.01, 0), "Auto Farm: OFF"
-)
-local chestBtn = createToggleButton(
-    "ChestBtn", UDim2.new(0.05, 0, 0.13, 0), "Auto Chest: OFF"
-)
-local dropBtn = createToggleButton(
-    "DropBtn", UDim2.new(0.05, 0, 0.25, 0), "Auto Drops: OFF"
-)
-local healBtn = createToggleButton(
-    "HealBtn", UDim2.new(0.05, 0, 0.37, 0), "Auto Heal: OFF"
-)
-local feedBtn = createToggleButton(
-    "FeedBtn", UDim2.new(0.05, 0, 0.49, 0), "Auto Feed: OFF"
-)
-
-local exploreBtn = createToggleButton(
-    "ExploreBtn",
-    UDim2.new(0.05, 0, 0.61, 0),
-    "Auto Explore: OFF"
-)
-local dungeonBtn = createToggleButton(
-    "DungeonLoopBtn",
-    UDim2.new(0.05, 0, 0.73, 0),
-    "Dungeon Loop: OFF"
-)
-
+local farmBtn = createToggleButton("FarmBtn", UDim2.new(0.05, 0, 0.01, 0), "Auto Farm: OFF")
+local chestBtn = createToggleButton("ChestBtn", UDim2.new(0.05, 0, 0.11, 0), "Auto Chest: OFF")
+local dropBtn = createToggleButton("DropBtn", UDim2.new(0.05, 0, 0.21, 0), "Auto Drops: OFF")
+local healPCBtn = createToggleButton("HealPCBtn", UDim2.new(0.05, 0, 0.31, 0), "Auto Heal PC: OFF")
+local healMobileBtn = createToggleButton("HealMobileBtn", UDim2.new(0.05, 0, 0.40, 0), "Auto Heal Mobile: OFF")
+-- Legacy variable alias retained for code compatibility; healing is controlled by the two buttons above.
+local healBtn = healPCBtn
+local feedBtn = createToggleButton("FeedBtn", UDim2.new(0.05, 0, 0.50, 0), "Auto Feed: OFF")
+local exploreBtn = createToggleButton("ExploreBtn", UDim2.new(0.05, 0, 0.60, 0), "Auto Explore: OFF")
+local dungeonBtn = createToggleButton("DungeonLoopBtn", UDim2.new(0.05, 0, 0.70, 0), "Dungeon Loop: OFF")
 
 -- ================================================
 -- DUNGEON SETTINGS
 -- ================================================
 
--- ประกาศ env ก่อนใช้งาน
 local env = getgenv and getgenv() or _G
 
 local DungeonSettings = env.DigimonEraDungeonSettings or {
@@ -301,14 +302,12 @@ local DungeonLevels = {
     Snowland = {"20-40", "41-70", "71-140", "141-190", "191-260"}
 }
 
--- ตรวจสอบค่าเดิมให้ตรงกับแผนที่
 local function validateDungeonSettings()
     if not DungeonLevels[DungeonSettings.Map] then
         DungeonSettings.Map = "Forest"
     end
 
     local valid = false
-
     for _, level in ipairs(DungeonLevels[DungeonSettings.Map]) do
         if level == DungeonSettings.Level then
             valid = true
@@ -321,7 +320,6 @@ local function validateDungeonSettings()
     end
 end
 
--- ตรวจสอบค่าทันที
 validateDungeonSettings()
 
 local settingsBtn = Instance.new("TextButton")
@@ -370,7 +368,6 @@ local mapBtn = makeSettingsButton("MapSelectBtn", 10, "")
 local levelBtn = makeSettingsButton("LevelSelectBtn", 48, "")
 local lockMapBtn = makeSettingsButton("LockMapBtn", 86, "")
 local lockLevelBtn = makeSettingsButton("LockLevelBtn", 124, "")
-
 local closeSettingsBtn = makeSettingsButton("CloseSettingsBtn", 162, "Close")
 
 local function refreshDungeonSettingsUI()
@@ -451,8 +448,7 @@ closeSettingsBtn.MouseButton1Click:Connect(function()
 end)
 
 refreshDungeonSettingsUI()
-local env = getgenv and getgenv() or _G
-env.DigimonEraDungeonLoop = env.DigimonEraDungeonLoop == true
+env.DigimonEraDungeonLoop = true -- เปิด Dungeon Loop เป็นค่าเริ่มต้นทุกครั้งที่เริ่มสคริปต์
 local AUTO_DUNGEON_LOOP = env.DigimonEraDungeonLoop
 
 -- HEAL SETTING UI
@@ -509,9 +505,10 @@ local function updateButton(btn, enabled, label)
         or Color3.fromRGB(220, 53, 69)
 end
 
+if healPCBtn then updateButton(healPCBtn, AUTO_HEAL_PC, "Auto Heal PC") end
+if healMobileBtn then updateButton(healMobileBtn, AUTO_HEAL_MOBILE, "Auto Heal Mobile") end
 if exploreBtn then updateButton(exploreBtn, AUTO_EXPLORE, "Auto Explore") end
 if dungeonBtn then updateButton(dungeonBtn, AUTO_DUNGEON_LOOP, "Dungeon Loop") end
-
 
 -- AUTO ENABLE ALL AFTER ENTERING DUNGEON
 local DUNGEON_PLACE_ID = 112998674138179
@@ -521,10 +518,7 @@ local autoEnableRunning = false
 local autoAlreadyEnabled = false
 
 local function enableAllAutoButtons()
-    if autoAlreadyEnabled then
-        return
-    end
-
+    if autoAlreadyEnabled then return end
     autoAlreadyEnabled = true
 
     AUTO_FARM = true
@@ -536,8 +530,11 @@ local function enableAllAutoButtons()
     AUTO_DROPS = true
     updateButton(dropBtn, true, "Auto Drops")
 
+    AUTO_HEAL_PC = true
+    AUTO_HEAL_MOBILE = true
     AUTO_HEAL = true
-    updateButton(healBtn, true, "Auto Heal")
+    updateButton(healPCBtn, true, "Auto Heal PC")
+    updateButton(healMobileBtn, true, "Auto Heal Mobile")
 
     AUTO_FEED = true
     updateButton(feedBtn, true, "Auto Feed")
@@ -565,28 +562,20 @@ local function enableAllAutoButtons()
 end
 
 local function checkDungeonAndEnableAutos()
-    if game.PlaceId ~= DUNGEON_PLACE_ID then
-        return
-    end
-
-    if autoEnableRunning or autoAlreadyEnabled then
-        return
-    end
+    if game.PlaceId ~= DUNGEON_PLACE_ID then return end
+    if autoEnableRunning or autoAlreadyEnabled then return end
 
     autoEnableRunning = true
 
     task.spawn(function()
         task.wait(UI_LOAD_DELAY)
-
         if game.PlaceId == DUNGEON_PLACE_ID then
             enableAllAutoButtons()
         end
-
         autoEnableRunning = false
     end)
 end
 
--- ตรวจสอบ Dungeon หลังระบบ Auto พร้อมทำงาน
 checkDungeonAndEnableAutos()
 
 task.spawn(function()
@@ -595,6 +584,7 @@ task.spawn(function()
         checkDungeonAndEnableAutos()
     end
 end)
+
 -- ================================================
 -- TOGGLE BUTTON EVENTS
 -- ================================================
@@ -634,10 +624,19 @@ if dropBtn then
     end)
 end
 
-if healBtn then
-    healBtn.MouseButton1Click:Connect(function()
-        AUTO_HEAL = not AUTO_HEAL
-        updateButton(healBtn, AUTO_HEAL, "Auto Heal")
+if healPCBtn then
+    healPCBtn.MouseButton1Click:Connect(function()
+        AUTO_HEAL_PC = not AUTO_HEAL_PC
+        AUTO_HEAL = AUTO_HEAL_PC or AUTO_HEAL_MOBILE
+        updateButton(healPCBtn, AUTO_HEAL_PC, "Auto Heal PC")
+    end)
+end
+
+if healMobileBtn then
+    healMobileBtn.MouseButton1Click:Connect(function()
+        AUTO_HEAL_MOBILE = not AUTO_HEAL_MOBILE
+        AUTO_HEAL = AUTO_HEAL_PC or AUTO_HEAL_MOBILE
+        updateButton(healMobileBtn, AUTO_HEAL_MOBILE, "Auto Heal Mobile")
     end)
 end
 
@@ -678,56 +677,99 @@ sendNotification("Digimon Era Control", "โหลด UI สำเร็จแ�
 -- AUTO FARM MODES
 -- ================================================
 
+local function getActiveController(hud)
+    if not hud then return nil end
+
+    local mobile = hud:FindFirstChild("Mobile_Controller")
+    local pc = hud:FindFirstChild("PC_Controller")
+
+    -- Prefer the controller that is actually visible on the current device.
+    if mobile and mobile.Visible then
+        return mobile
+    end
+    if pc and pc.Visible then
+        return pc
+    end
+
+    -- Fallback for interfaces that have not finished updating Visible yet.
+    return mobile or pc
+end
+
 enableFarmModes = function()
     local pGui = player:WaitForChild("PlayerGui")
     local hud = pGui:WaitForChild("HUD")
-
-    local controller = hud:WaitForChild("PC_Controller")
-    local partyFrame = controller:WaitForChild("PartyFrame")
-    local status = partyFrame:WaitForChild("StatusFrame")
-
-    local aggressive = status:FindFirstChild("Aggressive")
-
-    if aggressive and aggressive.Visible and aggressive.Active then
-        local ok, err = pcall(function()
-            firesignal(aggressive.Activated)
-        end)
-
-        if ok then
-            print("[Auto Farm] กด Aggressive แล้ว")
-        else
-            warn("[Auto Farm] กด Aggressive ไม่สำเร็จ:", err)
-        end
-    else
-        warn("[Auto Farm] ไม่พบปุ่ม Aggressive ที่พร้อมใช้งาน")
-    end
-
-    local autoSkill = status:FindFirstChild("AutoSkill")
-    local state = autoSkill and autoSkill:FindFirstChild("Status")
-
-    if not autoSkill or not state or not state:IsA("TextLabel") then
-        warn("[Auto Farm] ไม่พบสถานะ Auto Skill")
+    local controller = getActiveController(hud)
+    if not controller then
+        warn("[Auto Farm] ไม่พบ PC_Controller หรือ Mobile_Controller")
         return
     end
 
-    if state.Text == "OFF" then
-        if autoSkill.Visible and autoSkill.Active then
-            local ok, err = pcall(function()
-                firesignal(autoSkill.Activated)
-            end)
+    local partyFrame = controller:FindFirstChild("PartyFrame", true)
+    local status = partyFrame and partyFrame:FindFirstChild("StatusFrame", true)
+    if not status then
+        warn("[Auto Farm] ไม่พบ StatusFrame ใน Controller ที่เลือก")
+        return
+    end
 
-            if ok then
-                print("[Auto Farm] ส่งคำสั่งเปิด Auto Skill แล้ว")
-            else
-                warn("[Auto Farm] เปิด Auto Skill ไม่สำเร็จ:", err)
-            end
-        else
-            warn("[Auto Farm] ปุ่ม Auto Skill ยังไม่พร้อมใช้งาน")
-        end
-    else
-        print("[Auto Farm] Auto Skill เปิดอยู่แล้ว")
+    -- Keep the existing Aggressive behavior unchanged, as requested.
+    local aggressive = status:FindFirstChild("Aggressive", true)
+    if aggressive and aggressive.Visible and aggressive.Active then
+        pcall(function()
+            firesignal(aggressive.Activated)
+        end)
+    end
+
+    -- Auto Skill: locate its status under the active controller and only enable OFF.
+    local autoSkill = status:FindFirstChild("AutoSkill", true)
+    local state = autoSkill and autoSkill:FindFirstChild("Status", true)
+    local stateText = state and state:IsA("TextLabel")
+        and tostring(state.Text):match("^%s*(.-)%s*$")
+
+    if autoSkill and stateText and stateText:upper() == "OFF"
+        and autoSkill.Visible and autoSkill.Active then
+        pcall(function()
+            firesignal(autoSkill.Activated)
+        end)
     end
 end
+
+local function fireButton(btn)
+    if not btn or not btn.Parent or not btn.Visible then
+        return false
+    end
+
+    local fired = false
+
+    pcall(function()
+        if getconnections then
+            for _, conn in ipairs(getconnections(btn.Activated)) do
+                if conn.Enabled ~= false then
+                    pcall(function() conn:Fire() end)
+                    fired = true
+                end
+            end
+            for _, conn in ipairs(getconnections(btn.MouseButton1Click)) do
+                if conn.Enabled ~= false then
+                    pcall(function() conn:Fire() end)
+                    fired = true
+                end
+            end
+        end
+    end)
+
+    if not fired then
+        pcall(function()
+            if firesignal then
+                firesignal(btn.Activated)
+                firesignal(btn.MouseButton1Click)
+                fired = true
+            end
+        end)
+    end
+
+    return fired
+end
+
 -- ================================================
 -- AUTO FEED
 -- ================================================
@@ -786,41 +828,6 @@ local function getCaptureMain()
     local billboard = pGui and pGui:FindFirstChild("CaptureBillboard")
 
     return billboard and billboard:FindFirstChild("MainFrame")
-end
-
-local function fireButton(btn)
-    if not btn or not btn.Parent or not btn.Visible then
-        return false
-    end
-
-    local fired = false
-
-    pcall(function()
-        if getconnections then
-            for _, conn in ipairs(getconnections(btn.Activated)) do
-                if conn.Enabled ~= false then
-                    local ok = pcall(function()
-                        conn:Fire()
-                    end)
-
-                    if ok then
-                        fired = true
-                    end
-                end
-            end
-        end
-    end)
-
-    if not fired then
-        pcall(function()
-            if firesignal then
-                firesignal(btn.Activated)
-                fired = true
-            end
-        end)
-    end
-
-    return fired
 end
 
 local function teleportToCapture(capture, rootPart)
@@ -954,27 +961,22 @@ local function processAutoFeed(capture)
     return true
 end
 
-
 -- ================================================
 -- AUTO EXPLORE
 -- ================================================
 
 local EXPLORE_CHECK_INTERVAL = 5
 local INVESTIGATE_COOLDOWN = 5
-local EXPLORE_MAX_ROOM_SELECTIONS = 3
 local EXPLORE_MAX_MAP = 3
 
-local exploreRoomSelections = 0
 local lastInvestigateTime = tick()
 local exploringNow = false
 
--- ตรวจจับ Dungeon และรีเซ็ตเมื่อเข้า Dungeon รอบใหม่
 local EXPLORE_DUNGEON_PLACE_ID = 112998674138179
 local lastExplorePlaceId = game.PlaceId
 
 if game.PlaceId == EXPLORE_DUNGEON_PLACE_ID then
     lastInvestigateTime = 0
-    exploreRoomSelections = 0
     print("[Auto Explore] เข้า Dungeon — รีเซ็ตตัวนับห้อง")
 end
 
@@ -1009,7 +1011,6 @@ local function openMapForExplore()
     return mapFrame.Visible
 end
 
--- ปิดแผนที่หลังเลือกห้อง
 local function closeMapForExplore()
     local mapFrame = getMapFrame()
     if not mapFrame or not mapFrame.Visible then return true end
@@ -1071,7 +1072,6 @@ local function getCurrentRoomKey()
     return nil
 end
 
--- ตรวจว่ามีศัตรูที่ยังมีชีวิตและหาเส้นทางไปถึงได้หรือไม่
 local function hasReachableLivingEnemy(maxDistance)
     local character = player.Character
     local root = character and character:FindFirstChild("HumanoidRootPart")
@@ -1118,7 +1118,6 @@ local function findNextRoom(currentLayer, currentRoom, scrolling)
     local function getAvailableRoom(layer, excludeRoom)
         local mapNumber = tonumber(layer.Name:match("^Map(%d+)$"))
 
-        -- ห้ามเลือกห้องนอก Map1 ถึง Map3
         if not mapNumber or mapNumber > EXPLORE_MAX_MAP then
             return nil
         end
@@ -1155,13 +1154,11 @@ local function findNextRoom(currentLayer, currentRoom, scrolling)
         return nil
     end
 
-    -- ลองหาห้องใน Map ปัจจุบันก่อน
     local room = getAvailableRoom(currentLayer, currentRoom)
     if room then
         return room
     end
 
-    -- หากไม่มีห้องต่อ ให้ค้นหาเฉพาะ Map ถัดไปจนถึง Map3
     local currentMapNumber = tonumber(currentLayer.Name:match("^Map(%d+)$"))
     if not currentMapNumber or not scrolling then
         return nil
@@ -1201,14 +1198,12 @@ end
 
 task.spawn(function()
     while screenGui.Parent do
-        -- รีเซ็ตตัวนับเมื่อเข้า Dungeon จาก Place อื่น
         if game.PlaceId ~= lastExplorePlaceId then
             lastExplorePlaceId = game.PlaceId
 
             if game.PlaceId == EXPLORE_DUNGEON_PLACE_ID then
                 lastInvestigateTime = 0
-                exploreRoomSelections = 0
-
+            
                 print("[Auto Explore] เข้า Dungeon รอบใหม่ — รีเซ็ตตัวนับห้อง")
             end
         end
@@ -1218,10 +1213,6 @@ task.spawn(function()
 
             local ok, err = pcall(function()
                 if game.PlaceId ~= EXPLORE_DUNGEON_PLACE_ID then
-                    return
-                end
-
-                if exploreRoomSelections >= EXPLORE_MAX_ROOM_SELECTIONS then
                     return
                 end
 
@@ -1255,7 +1246,6 @@ task.spawn(function()
                     return
                 end
 
-                -- ไม่เปลี่ยนห้องถ้ายังมีศัตรูที่เดินไปถึงได้
                 if hasReachableLivingEnemy(120) then
                     return
                 end
@@ -1270,17 +1260,9 @@ task.spawn(function()
                     )
 
                     if fireButton(nextRoom) then
-                        exploreRoomSelections = exploreRoomSelections + 1
                         lastInvestigateTime = tick()
+                        print("[Auto Explore] เลือกห้องถัดไปแล้ว:", nextRoom.Name)
 
-                        print(
-                            "[Auto Explore] เลือกห้องแล้ว",
-                            exploreRoomSelections,
-                            "/",
-                            EXPLORE_MAX_ROOM_SELECTIONS
-                        )
-
-                        -- รอ 5 วินาทีหลังเลือกห้อง
                         task.wait(5)
                         closeMapForExplore()
 
@@ -1304,23 +1286,32 @@ task.spawn(function()
     end
 end)
 
+
 -- ================================================
--- AUTO HEAL
+-- AUTO HEAL - SINGLE HEAL POTION S
+-- Auto Equip + Slot 4 + PC/Mobile
 -- ================================================
 
-local HEAL_COOLDOWN = 5
-local HEAL_CHECK_INTERVAL = 1
+local HEAL_COOLDOWN = 3
+local HEAL_CHECK_INTERVAL = 0.5
 local lastHealTime = 0
+local lastEquipAttempt = 0
 local isHealing = false
+local isEquipping = false
+local lastHealDebugAt = 0
+local function healDebug(message)
+    if tick() - lastHealDebugAt >= 4 then
+        lastHealDebugAt = tick()
+        warn("[Auto Heal] " .. tostring(message))
+    end
+end
 
--- ลำดับความสำคัญของยา
-local POTION_PRIORITY = {
-    "Single Healing Potion L",
-    "Single Healing Potion M",
-    "Single Healing Potion S"
-}
+-- Keep the original working UI object name first; some UI versions display
+-- "Single Healing Potion S" while the instance is still named "Single Heal Potion S".
+local HEAL_ITEM_NAME = "Single Heal Potion S"
+local HEAL_ITEM_NAME_FALLBACK = "Single Healing Potion S"
 
--- ตรวจสอบ HP จากข้อความรูปแบบ Current / Max
+-- ค้นหา HP จาก TextLabel ที่แสดง current/max
 local function getDigimonHP()
     local pGui = player:FindFirstChild("PlayerGui")
     if not pGui then return nil, nil end
@@ -1329,12 +1320,11 @@ local function getDigimonHP()
         if gui:IsA("TextLabel") and gui.Visible and gui.Text ~= "" then
             local text = gui.Text:gsub(",", "")
             local cur, max = text:match("(%d+)%s*/%s*(%d+)")
-
             local currentHP = tonumber(cur)
             local maximumHP = tonumber(max)
 
             if currentHP and maximumHP
-                and maximumHP > 100
+                and maximumHP > 50
                 and currentHP <= maximumHP then
                 return currentHP, maximumHP
             end
@@ -1344,109 +1334,695 @@ local function getDigimonHP()
     return nil, nil
 end
 
--- ค้นหายาใน Backpack ก่อน แล้วค่อยตรวจ Character
-local function findPotion()
-    local backpack = player:FindFirstChildOfClass("Backpack")
-    local character = player.Character
+-- ดึงปุ่มและสถานะ Equip/Remove
+local function getHealItemControls()
+    local pg = player:FindFirstChild("PlayerGui")
+    if not pg then return nil end
 
-    for _, potionName in ipairs(POTION_PRIORITY) do
-        if backpack then
-            local potion = backpack:FindFirstChild(potionName)
-            if potion and potion:IsA("Tool") then
-                return potion
-            end
-        end
+    -- PC and mobile UI can place the inventory controls at different depths.
+    -- Search descendants rather than assuming ItemBox/ScrollingFrame are direct children.
+    local main = pg:FindFirstChild("Main")
+    local itemBox = main and main:FindFirstChild("ItemBox", true)
+    if not itemBox then
+        -- Inventory UI names/parents differ between PC and mobile builds.
+        itemBox = pg:FindFirstChild("ItemBox", true)
+    end
 
-        if character then
-            local potion = character:FindFirstChild(potionName)
-            if potion and potion:IsA("Tool") then
-                return potion
+    -- Fallback: locate the inventory panel by its Equip/Remove control instead
+    -- of relying on the literal name ItemBox.
+    if not itemBox then
+        for _, node in ipairs(pg:GetDescendants()) do
+            if (node:IsA("Frame") or node:IsA("ScrollingFrame"))
+                and node:FindFirstChild("ItemEquip", true)
+                and node:FindFirstChild("ModeName", true) then
+                itemBox = node
+                break
             end
         end
     end
 
-    return nil
+    local scrolling = itemBox and itemBox:FindFirstChild("ScrollingFrame", true)
+
+    -- Inventory item Instances are often named generic IDs; the potion name is
+    -- displayed by a descendant TextLabel. Match both Instance.Name and UI text.
+    local function normalizeItemName(value)
+        return tostring(value or ""):lower():gsub("[%p%c]", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
+    end
+
+    local function isPotionName(value)
+        local name = normalizeItemName(value)
+        return name == normalizeItemName(HEAL_ITEM_NAME)
+            or name == normalizeItemName(HEAL_ITEM_NAME_FALLBACK)
+            or name:find("single healing potion s", 1, true) ~= nil
+            or name:find("single heal potion s", 1, true) ~= nil
+    end
+
+    local function findPotion(container)
+        if not container then return nil end
+        if isPotionName(container.Name) then return container end
+
+        for _, obj in ipairs(container:GetDescendants()) do
+            local matched = isPotionName(obj.Name)
+            if not matched and (obj:IsA("TextLabel") or obj:IsA("TextButton")) then
+                matched = isPotionName(obj.Text)
+            end
+            if matched then
+                -- IMPORTANT: return the inventory row/container, not its TextLabel.
+                -- Returning the label made the old code search for clickable children
+                -- inside a label (there are none), so the potion was never selected.
+                local ancestor = obj
+                while ancestor and ancestor ~= container do
+                    if ancestor:IsA("GuiButton") then return ancestor end
+                    if ancestor:IsA("Frame") or ancestor:IsA("ScrollingFrame") then
+                        local hasItemName = false
+                        for _, sub in ipairs(ancestor:GetDescendants()) do
+                            if (sub:IsA("TextLabel") or sub:IsA("TextButton")) and isPotionName(sub.Text) then
+                                hasItemName = true
+                                break
+                            end
+                        end
+                        if hasItemName then return ancestor end
+                    end
+                    ancestor = ancestor.Parent
+                end
+                return obj
+            end
+        end
+        return nil
+    end
+
+    local item = findPotion(scrolling) or findPotion(itemBox) or findPotion(pg)
+
+    -- If the potion was found outside the expected panel, walk upward to the
+    -- nearest container that owns the Equip/Remove controls.
+    if not itemBox and item then
+        local ancestor = item.Parent
+        while ancestor and ancestor ~= pg do
+            if ancestor:FindFirstChild("ItemEquip", true)
+                and ancestor:FindFirstChild("ModeName", true) then
+                itemBox = ancestor
+                break
+            end
+            ancestor = ancestor.Parent
+        end
+    end
+    if not itemBox then return nil end
+
+    local info = itemBox:FindFirstChild("InfoFrame", true) or itemBox
+    local equip = info and info:FindFirstChild("ItemEquip", true)
+    local modeName = equip and equip:FindFirstChild("ModeName", true)
+
+    return {
+        itemBox = itemBox,
+        item = item,
+        equip = equip,
+        modeName = modeName,
+    }
 end
 
--- ใช้ยาเพียงช่องทางเดียวต่อครั้ง
-local function usePotion()
-    local potion = findPotion()
-    if not potion then
-        return false, "ไม่พบยาใน Backpack หรือ Character"
+-- คลิกปุ่ม GUI แบบเมาส์จริงสำหรับ Auto Heal เท่านั้น.
+-- ไม่แก้ fireButton กลาง เพราะระบบอื่นใช้งานอยู่แล้ว.
+local function clickHealGuiButton(button)
+    if not button or not button.Parent or not button.Visible or not button.Active then
+        return false
     end
 
-    local character = player.Character
-    local humanoid = character
-        and character:FindFirstChildOfClass("Humanoid")
-
-    if not character or not humanoid or humanoid.Health <= 0 then
-        return false, "ตัวละครยังไม่พร้อม"
-    end
-
-    local backpack = player:FindFirstChildOfClass("Backpack")
-
-    if potion.Parent == backpack then
-        local ok = pcall(function()
-            humanoid:EquipTool(potion)
-        end)
-
-        if not ok then
-            return false, "ใส่ยาไม่สำเร็จ"
-        end
-
-        task.wait(0.2)
-    end
-
-    if potion.Parent ~= character then
-        return false, "ไม่สามารถใส่ยาได้"
-    end
+    local pos = button.AbsolutePosition
+    local size = button.AbsoluteSize
+    local x = math.floor(pos.X + size.X / 2)
+    local y = math.floor(pos.Y + size.Y / 2)
 
     local ok = pcall(function()
-        potion:Activate()
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game)
+        task.wait(0.06)
+        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game)
     end)
-
-    if not ok then
-        return false, "เรียกใช้ยาไม่สำเร็จ"
-    end
-
-    return true, potion.Name
+    return ok
 end
 
+-- Mobile: ส่ง touch จริงก่อน เพราะ firesignal/MouseButton อาจเรียก callback
+-- แต่ไม่ทำให้ UI มือถือรับเหตุการณ์แตะช่องยา.
+local function clickHealMobileButton(button)
+    if not button or not button.Parent or not button.Visible or not button.Active then
+        return false
+    end
+    local pos, size = button.AbsolutePosition, button.AbsoluteSize
+    local x = math.floor(pos.X + size.X / 2)
+    local y = math.floor(pos.Y + size.Y / 2)
+    local sentTouch = false
+    pcall(function()
+        -- VirtualInputManager touch states: begin -> end.
+        if VirtualInputManager.SendTouchEvent then
+            -- Correct touch lifecycle: 0 = begin, 1 = end.
+            VirtualInputManager:SendTouchEvent(0, 0, x, y)
+            task.wait(0.08)
+            VirtualInputManager:SendTouchEvent(0, 1, x, y)
+            sentTouch = true
+        end
+    end)
+    if sentTouch then
+        task.wait(0.15)
+        return true
+    end
+    -- Fallback for clients/executors that do not expose SendTouchEvent.
+    return clickHealGuiButton(button)
+end
+
+-- Mobile inventory controls may be Frames; tap the real child GuiButton when present.
+local function clickMobileTarget(target)
+    if not target or not target.Parent then return false end
+    if target:IsA("GuiButton") and target.Visible and target.Active then
+        return clickHealMobileButton(target)
+    end
+    for _, child in ipairs(target:GetDescendants()) do
+        if child:IsA("GuiButton") and child.Visible and child.Active then
+            if clickHealMobileButton(child) then return true end
+        end
+    end
+    if target:IsA("GuiObject") and target.Visible and target.Active then
+        return clickHealMobileButton(target)
+    end
+    return false
+end
+
+-- Detect the actual visible controller separately from the selected Auto Heal mode.
+-- PC Auto Heal may be enabled while the game is displaying the Mobile UI; inventory
+-- selection must use the input method that matches the visible UI, while potion use
+-- remains tied to the selected heal mode (PC keyboard 4 vs Mobile slot button).
+local function isMobileHealUIVisible()
+    local pg = player:FindFirstChild("PlayerGui")
+    local hud = pg and pg:FindFirstChild("HUD")
+    local mobileController = hud and hud:FindFirstChild("Mobile_Controller")
+    return mobileController ~= nil and mobileController.Visible == true
+end
+
+local function shouldUseMobileHealInput(mode)
+    return tostring(mode) == "Mobile" or isMobileHealUIVisible()
+end
+
+-- เปิดหน้ารายการไอเทมผ่าน UI ชื่อ "Item" ก่อนค้นหายา
+-- ปุ่ม Item ใช้ร่วมกันทั้ง PC และ Mobile; ไม่เดาปุ่มจากคำว่า Bag/Inventory
+local function openHealBagIfNeeded(mode, controls)
+    local pg = player:FindFirstChild("PlayerGui")
+    if not pg then return controls end
+
+    local function isVisibleThroughParents(obj)
+        if not obj then return false end
+        local node = obj
+        while node and node ~= pg do
+            if node:IsA("GuiObject") and not node.Visible then return false end
+            node = node.Parent
+        end
+        return true
+    end
+
+    -- หากแผง รายการยา และปุ่ม Equip ที่ค้นพบแสดงอยู่จริง ไม่กด Item ซ้ำ
+    if controls and controls.itemBox and controls.item and controls.equip
+        and controls.modeName
+        and isVisibleThroughParents(controls.itemBox)
+        and isVisibleThroughParents(controls.item)
+        and isVisibleThroughParents(controls.equip) then
+        return controls
+    end
+
+    -- หา UI ที่ชื่อ Item ก่อน โดยให้ความสำคัญกับชื่อ Instance ตรงตัว
+    local exactName = {}
+    local textMatch = {}
+    for _, obj in ipairs(pg:GetDescendants()) do
+        if obj:IsA("GuiButton") and obj.Visible and obj.Active then
+            if tostring(obj.Name):lower() == "item" then
+                table.insert(exactName, obj)
+            elseif obj:IsA("TextButton") and tostring(obj.Text):match("^%s*[Ii]tem%s*$") then
+                table.insert(textMatch, obj)
+            end
+        end
+    end
+
+    local target = exactName[1] or textMatch[1]
+    -- บาง UI ตั้งชื่อ Frame ว่า Item แล้ววางปุ่มกดไว้ข้างใน
+    if not target then
+        for _, obj in ipairs(pg:GetDescendants()) do
+            if obj:IsA("GuiObject") and tostring(obj.Name):lower() == "item"
+                and isVisibleThroughParents(obj) then
+                for _, child in ipairs(obj:GetDescendants()) do
+                    if child:IsA("GuiButton") and child.Visible and child.Active then
+                        target = child
+                        break
+                    end
+                end
+                if target then break end
+            end
+        end
+    end
+
+    if not target then
+        warn("[Auto Heal " .. tostring(mode or "PC") .. "] หา UI ชื่อ Item ไม่พบ; ไม่คลิกปุ่มอื่นแบบสุ่ม")
+        return controls
+    end
+
+    local clicked = false
+    if shouldUseMobileHealInput(mode) then
+        clicked = clickHealMobileButton(target)
+        if not clicked then clicked = fireButton(target) end
+    else
+        clicked = fireButton(target)
+        if not clicked then clicked = clickHealGuiButton(target) end
+    end
+    print("[Auto Heal " .. tostring(mode or "PC") .. "] กด UI Item ก่อนค้นหายา:", clicked, target:GetFullName())
+    task.wait(0.5)
+    return getHealItemControls()
+end
+
+-- เลือกยาและ Equip เฉพาะเมื่อสถานะเป็น Equip
+local function ensureHealPotionEquipped(mode)
+    if isEquipping then return false end
+    if tick() - lastEquipAttempt < 2 then return false end
+
+    local controls = getHealItemControls()
+    controls = openHealBagIfNeeded(mode, controls)
+    if not controls or not controls.item or not controls.equip or not controls.modeName then
+        healDebug("หาแผง Inventory/รายการ Single Healing Potion S/ปุ่ม Equip ไม่ครบ; เปิดหน้ากระเป๋าไว้แล้วลองอีกครั้ง")
+        return false
+    end
+
+    local function modeText(c)
+        return c and c.modeName and tostring(c.modeName.Text):match("^%s*(.-)%s*$") or ""
+    end
+    if modeText(controls):lower() == "remove" then
+        return true
+    end
+    if modeText(controls):lower() ~= "equip" then
+        healDebug("พบยาแต่สถานะปุ่มไม่ใช่ Equip: " .. modeText(controls))
+        return false
+    end
+
+    isEquipping = true
+    lastEquipAttempt = tick()
+    -- Inventory item/equip controls follow the visible UI, not the heal toggle.
+    -- This lets PC Auto Heal equip a potion when the game is currently showing Mobile UI.
+    local mobileMode = shouldUseMobileHealInput(mode)
+    local ok, err = pcall(function()
+        local selected = false
+        -- On mobile, prioritize actual touch input. Firing a GuiButton signal
+        -- can report success without the game's inventory selection handler running.
+        if mobileMode then
+            if controls.item:IsA("GuiButton") then
+                selected = clickMobileTarget(controls.item)
+            else
+                for _, child in ipairs(controls.item:GetDescendants()) do
+                    if child:IsA("GuiButton") and child.Visible and child.Active then
+                        selected = clickMobileTarget(child)
+                        if selected then break end
+                    end
+                end
+                if not selected and controls.item:IsA("GuiObject") and controls.item.Active then
+                    selected = clickMobileTarget(controls.item)
+                end
+            end
+        else
+            if controls.item:IsA("GuiButton") then
+                selected = fireButton(controls.item)
+                if not selected then selected = clickHealGuiButton(controls.item) end
+            else
+                for _, child in ipairs(controls.item:GetDescendants()) do
+                    if child:IsA("GuiButton") and child.Visible and child.Active then
+                        selected = fireButton(child)
+                        if not selected then selected = clickHealGuiButton(child) end
+                        if selected then break end
+                    end
+                end
+                if not selected and controls.item:IsA("GuiObject") and controls.item.Active then
+                    selected = clickHealGuiButton(controls.item)
+                end
+            end
+        end
+        if not selected then
+            warn("[Auto Heal " .. tostring(mode or "PC") .. "] พบรายการยา แต่ส่งการเลือกไอเทมไม่สำเร็จ")
+        end
+
+        task.wait(0.4)
+        local updated = getHealItemControls()
+        if updated and updated.modeName and modeText(updated):lower() == "equip"
+            and updated.equip and updated.equip.Visible and updated.equip.Active then
+            local equipClicked = false
+            if mobileMode then
+                equipClicked = clickMobileTarget(updated.equip)
+            else
+                equipClicked = fireButton(updated.equip)
+                if not equipClicked then equipClicked = clickHealGuiButton(updated.equip) end
+            end
+            print("[Auto Heal " .. tostring(mode or "PC") .. "] แตะ/คลิก Equip:", equipClicked, updated.equip:GetFullName())
+        end
+    end)
+
+    task.wait(0.3)
+    local updated = getHealItemControls()
+    local equipped = updated and updated.modeName and modeText(updated):lower() == "remove"
+    isEquipping = false
+
+    if not ok then warn("[Auto Heal] Equip error:", err) end
+    if equipped then
+        print("[Auto Heal " .. tostring(mode or "PC") .. "] ยาอยู่ในช่องแล้ว")
+        return true
+    end
+    healDebug("เลือก/Equip ยาไม่สำเร็จ; โหมด=" .. tostring(mode or "PC") .. "; สถานะ=" .. modeText(updated or {}))
+    return false
+end
+
+-- ใช้ยาผ่านปุ่ม QuickItem; บาง UI มือถือ QuickItem เป็น Frame
+-- และปุ่มกดจริงอยู่ข้างใน ไม่ใช่ตัว QuickItem เอง.
+local function triggerSlot4Potion(mode, forceGui)
+    -- PC: ยึดวิธีจาก Auto Heal ใน digimonEra3.lua
+    -- ขั้นแรกส่งปุ่มคีย์บอร์ด 4; หากต้อง fallback ให้หา GuiButton ที่ Text == "4" ทั่ว PlayerGui.
+    -- Mobile-only path: target the actual visible slot button whose own Text is "4".
+    -- This block is isolated from the PC keyboard/UI behavior below.
+    if tostring(mode) == "Mobile" then
+        local mobilePg = player:FindFirstChild("PlayerGui")
+        if mobilePg then
+            local function visibleThroughParents(obj)
+                local node = obj
+                while node and node ~= mobilePg do
+                    if node:IsA("GuiObject") and not node.Visible then return false end
+                    node = node.Parent
+                end
+                return true
+            end
+
+            local candidates = {}
+            for _, obj in ipairs(mobilePg:GetDescendants()) do
+                if obj:IsA("TextButton") or obj:IsA("ImageButton") then
+                    local buttonText = ""
+                    pcall(function() buttonText = tostring(obj.Text) end)
+                    local hasFourLabel = buttonText:match("^%s*4%s*$") ~= nil
+                    if not hasFourLabel then
+                        for _, child in ipairs(obj:GetDescendants()) do
+                            if child:IsA("TextLabel") or child:IsA("TextButton") then
+                                local labelText = ""
+                                pcall(function() labelText = tostring(child.Text) end)
+                                if labelText:match("^%s*4%s*$") then
+                                    hasFourLabel = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    if hasFourLabel and obj.Visible and obj.Active
+                        and visibleThroughParents(obj) then
+                        table.insert(candidates, obj)
+                    end
+                end
+            end
+
+            local mobileHud = mobilePg:FindFirstChild("HUD")
+            local mobileQuickItem = mobileHud and mobileHud:FindFirstChild("QuickItem", true)
+            local mobileTarget = nil
+            if mobileQuickItem then
+                for _, candidate in ipairs(candidates) do
+                    if candidate == mobileQuickItem or candidate:IsDescendantOf(mobileQuickItem) then
+                        mobileTarget = candidate
+                        break
+                    end
+                end
+            end
+            if not mobileTarget and #candidates == 1 then
+                mobileTarget = candidates[1]
+            end
+
+            if mobileTarget then
+                -- MOBILE-ONLY CHANGE:
+                -- Prefer the connected UI callback first. The detected InventoryUI
+                -- connection is named useEquippedItem; sending a synthetic touch can
+                -- return success without the game's item-use callback actually running.
+                -- The existing PC branch below is deliberately unchanged.
+                if fireButton(mobileTarget) then
+                    print("[Auto Heal Mobile] เรียก callback ปุ่มช่อง 4 ก่อน Touch:", mobileTarget:GetFullName())
+                    return true, "เรียก callback ช่อง 4 แล้ว; กำลังตรวจ HP"
+                end
+
+                if forceGui then
+                    local activated = pcall(function() mobileTarget:Activate() end)
+                    if activated then
+                        print("[Auto Heal Mobile] Fallback Activate ช่อง 4:", mobileTarget:GetFullName())
+                        return true, "Activate ช่อง 4 แล้ว; กำลังตรวจ HP"
+                    end
+                    warn("[Auto Heal Mobile] Fallback ช่อง 4 ไม่สำเร็จ:", mobileTarget:GetFullName())
+                    return false, "Fallback ช่อง 4 ไม่สำเร็จ"
+                end
+
+                -- Touch is only attempted if firing the connected callback failed.
+                if clickHealMobileButton(mobileTarget) then
+                    print("[Auto Heal Mobile] ส่ง Touch ช่อง 4 ตาม UI Text=4:", mobileTarget:GetFullName())
+                    return true, "ส่ง Touch ช่อง 4 แล้ว; กำลังตรวจ HP"
+                end
+                warn("[Auto Heal Mobile] พบปุ่ม Text=4 แต่ callback และ Touch ไม่สำเร็จ:", mobileTarget:GetFullName())
+            end
+        end
+    end
+
+    local pg = player:FindFirstChild("PlayerGui")
+    if tostring(mode) ~= "Mobile" then
+        if not forceGui then
+            local keySent = pcall(function()
+                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Four, false, game)
+                task.wait(0.08)
+                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Four, false, game)
+            end)
+            if keySent then
+                print("[Auto Heal PC] ส่งปุ่มคีย์บอร์ด 4 ตามวิธี digimonEra3")
+                return true, "ส่งปุ่มคีย์บอร์ด 4 แล้ว; กำลังตรวจ HP"
+            end
+        end
+
+        if pg then
+            for _, obj in ipairs(pg:GetDescendants()) do
+                if obj:IsA("TextButton") or obj:IsA("ImageButton") then
+                    local text = ""
+                    pcall(function() text = tostring(obj.Text) end)
+                    if text == "4" and obj.Visible and obj.Active then
+                        local ok = pcall(function() obj:Activate() end)
+                        if ok then
+                            print("[Auto Heal PC] กดปุ่ม UI Text=4 ตามวิธี digimonEra3:", obj:GetFullName())
+                            return true, "Activate ปุ่ม UI Text=4 แล้ว; กำลังตรวจ HP"
+                        end
+                    end
+                end
+            end
+        end
+        if forceGui then
+            return false, "ไม่พบปุ่ม TextButton/ImageButton ที่ Text == 4 ใน PlayerGui (วิธี digimonEra3)"
+        end
+    end
+    local hud = pg and pg:FindFirstChild("HUD")
+    local quickItem = hud and hud:FindFirstChild("QuickItem", true)
+    if not quickItem then
+        return false, "ไม่พบ HUD.QuickItem (ช่องยา 4)"
+    end
+
+    -- In the user's current UI, HUD.QuickItem itself is a TextButton.
+    -- Treat the object itself as the candidate only when it is a visible, active
+    -- GuiButton and it has no usable child buttons. Do not reject it just because
+    -- it has no GuiButton descendants.
+    local buttons = {}
+    for _, child in ipairs(quickItem:GetDescendants()) do
+        if child:IsA("GuiButton") and child.Visible and child.Active then
+            table.insert(buttons, child)
+        end
+    end
+
+    if #buttons == 0 then
+        if quickItem:IsA("GuiButton") and quickItem.Visible and quickItem.Active then
+            buttons[1] = quickItem
+        else
+            return false, "QuickItem ไม่มีปุ่มที่มองเห็นและ Active; QuickItem=" .. quickItem.ClassName
+        end
+    end
+
+    local function markerFor(obj)
+        local bits = {obj.Name}
+        if obj:IsA("TextButton") then table.insert(bits, obj.Text) end
+        for _, d in ipairs(obj:GetDescendants()) do
+            if d:IsA("TextLabel") or d:IsA("TextButton") then
+                table.insert(bits, d.Name)
+                table.insert(bits, tostring(d.Text or ""))
+            end
+        end
+        return table.concat(bits, " "):lower()
+    end
+
+    local target = nil
+    -- The log from the current game explicitly reports HUD.QuickItem as a
+    -- TextButton with zero GuiButton children. In that exact case, use the
+    -- QuickItem TextButton itself instead of requiring a child named Slot4.
+    if #buttons == 1 and buttons[1] == quickItem and quickItem:IsA("TextButton") then
+        target = quickItem
+    end
+
+    -- ชื่อปุ่ม/ข้อความที่ระบุช่อง 4 ชัดเจนมาก่อน
+    if not target then
+    for _, b in ipairs(buttons) do
+        local marker = markerFor(b)
+        if marker:match("slot%s*4") or marker:match("item%s*4")
+            or marker:match("button%s*4") or marker:match("quickitem%s*4")
+            or marker:match("^%s*4%s*$") or marker:match("[%s_%-]4[%s_%-]") then
+            target = b
+            break
+        end
+    end
+    end
+
+    -- ถ้า UI ไม่ตั้งชื่อช่องไว้ ให้เรียงปุ่มในแถบเดียวกันจากซ้ายไปขวา
+    -- แล้วเลือกปุ่มลำดับที่ 4 เฉพาะเมื่อมีอย่างน้อย 4 ปุ่มในแถบเดียวกัน.
+    if not target then
+        local rows = {}
+        for _, b in ipairs(buttons) do
+            local pos, size = b.AbsolutePosition, b.AbsoluteSize
+            if size.X > 0 and size.Y > 0 then
+                local rowKey = math.floor((pos.Y + size.Y / 2) / 25)
+                rows[rowKey] = rows[rowKey] or {}
+                table.insert(rows[rowKey], b)
+            end
+        end
+        local bestRow, bestCount = nil, 0
+        for _, row in pairs(rows) do
+            table.sort(row, function(a, b)
+                return a.AbsolutePosition.X < b.AbsolutePosition.X
+            end)
+            if #row > bestCount then bestRow, bestCount = row, #row end
+        end
+        if bestRow and #bestRow >= 4 then
+            target = bestRow[4]
+        -- Do not guess when only one unlabeled child exists: it may be a
+        -- container/other slot. Require an explicit slot marker or a row of 4+.
+        end
+    end
+
+    if not target then
+        local details = {}
+        for i, b in ipairs(buttons) do
+            if i > 12 then break end
+            table.insert(details, b.Name .. "(" .. b.ClassName .. ")")
+        end
+        return false, "หยุดเพื่อไม่แตะผิดปุ่ม: ระบุช่อง 4 ใน QuickItem ไม่ได้; ปุ่มลูกที่พบ: " .. table.concat(details, ", ")
+    end
+
+    if not target.Visible or not target.Active then
+        return false, "ปุ่มช่อง 4 ยังไม่พร้อมใช้งาน: " .. target:GetFullName()
+    end
+
+    if tostring(mode) == "Mobile" then
+        if clickHealMobileButton(target) then
+            print("[Auto Heal Mobile] ส่ง Touch ไปปุ่มช่อง 4 โดยตรง:", target:GetFullName())
+            return true, "แตะปุ่มช่อง 4 แล้ว; กำลังตรวจ HP"
+        end
+        if fireButton(target) then
+            print("[Auto Heal Mobile] Fired callback ช่อง 4:", target:GetFullName())
+            return true, "เรียก callback ช่อง 4 แล้ว; กำลังตรวจ HP"
+        end
+    else
+        if fireButton(target) then
+            print("[Auto Heal PC] Fired slot 4 button:", target:GetFullName())
+            return true, "ส่งคำสั่งช่อง 4 แล้ว; กำลังตรวจ HP"
+        end
+        if clickHealGuiButton(target) then
+            print("[Auto Heal PC] Clicked slot 4 button:", target:GetFullName())
+            return true, "คลิกช่อง 4 แล้ว; กำลังตรวจ HP"
+        end
+    end
+    return false, "กดปุ่มช่อง 4 ไม่สำเร็จ: " .. target:GetFullName()
+end
+
+local function confirmHealIncrease(previousHP, timeout)
+    local deadline = tick() + (timeout or 2)
+    while tick() < deadline do
+        task.wait(0.25)
+        local currentHP = getDigimonHP()
+        if currentHP and previousHP and currentHP > previousHP then
+            return true, currentHP
+        end
+    end
+    local currentHP = getDigimonHP()
+    return false, currentHP
+end
+
+-- วนทำงาน Auto Heal
+local lastHealMode = "Mobile"
 task.spawn(function()
-    while screenGui.Parent do
-        if AUTO_HEAL and not isHealing then
+    while screenGui and screenGui.Parent do
+        if (AUTO_HEAL_PC or AUTO_HEAL_MOBILE) and not isHealing then
+            local activeHealMode = "PC"
             local ok, err = pcall(function()
                 local curHP, maxHP = getDigimonHP()
-
-                if not curHP or not maxHP then
-                    return
-                end
+                if not curHP or not maxHP then return end
 
                 local missingHP = maxHP - curHP
+                if missingHP < HEAL_DROP_AMOUNT then return end
+                if tick() - lastHealTime < HEAL_COOLDOWN then return end
 
-                -- ใช้ยาเมื่อ HP ขาดตั้งแต่ 500 ขึ้นไป
-                if missingHP < HEAL_DROP_AMOUNT then
-                    return
-                end
-
-                -- ป้องกันการใช้ยาถี่เกินไป
-                if tick() - lastHealTime < HEAL_COOLDOWN then
-                    return
+                if AUTO_HEAL_PC and AUTO_HEAL_MOBILE then
+                    activeHealMode = (lastHealMode == "PC") and "Mobile" or "PC"
+                    lastHealMode = activeHealMode
+                elseif AUTO_HEAL_MOBILE then
+                    activeHealMode = "Mobile"
+                else
+                    activeHealMode = "PC"
                 end
 
                 isHealing = true
-                lastHealTime = tick()
 
-                local used, result = usePotion()
-
-                if used then
-                    sendNotification(
-                        "Auto Heal",
-                        "ใช้ " .. result
-                            .. " | HP ขาด " .. math.floor(missingHP)
-                    )
+                -- MOBILE-ONLY FIX:
+                -- The user has already placed the potion in slot 4. Do not reopen
+                -- Item/inventory or block slot-4 tapping on an equip-state detector.
+                -- Keep the original PC equip/use flow completely unchanged.
+                local ready
+                if activeHealMode == "Mobile" then
+                    ready = true
+                    print("[Auto Heal Mobile] ข้ามการเปิดกระเป๋า: ใช้ยาที่อยู่ช่อง 4 โดยตรง")
                 else
-                    warn("[Auto Heal] " .. result)
+                    ready = ensureHealPotionEquipped(activeHealMode)
+                end
+
+                if not ready then
+                    lastHealTime = tick()
+                    warn("[Auto Heal " .. activeHealMode .. "] ยัง Equip ยาไม่สำเร็จ; ตรวจว่าหน้ากระเป๋าแสดง Single Healing Potion S และปุ่ม Equip อยู่")
+                else
+                    print("[Auto Heal " .. activeHealMode .. "] HP=" .. tostring(curHP) .. "/" .. tostring(maxHP) .. "; เริ่มใช้ยาช่อง 4")
+                    local used, result = triggerSlot4Potion(activeHealMode)
+                    if used then
+                        lastHealTime = tick()
+                        local healed, afterHP = confirmHealIncrease(curHP, 2)
+
+                        -- If PC hotkey 4 did not change HP, try the actual visible slot button.
+                        if not healed and activeHealMode == "PC" then
+                            warn("[Auto Heal PC] กดคีย์ 4 แล้ว HP ไม่เพิ่ม; ลองปุ่ม GUI ช่อง 4")
+                            local guiSent, guiResult = triggerSlot4Potion(activeHealMode, true)
+                            if guiSent then
+                                healed, afterHP = confirmHealIncrease(curHP, 2)
+                            else
+                                warn("[Auto Heal PC] GUI fallback: " .. tostring(guiResult))
+                            end
+                        elseif not healed and activeHealMode == "Mobile" then
+                            -- A touch API call can return successfully without the game
+                            -- consuming it. Only after HP confirmation fails, retry the
+                            -- exact slot-4 button through its GUI callback/Activate path.
+                            warn("[Auto Heal Mobile] แตะช่อง 4 แล้ว HP ไม่เพิ่ม; ลอง callback ของปุ่มช่อง 4")
+                            local guiSent, guiResult = triggerSlot4Potion(activeHealMode, true)
+                            if guiSent then
+                                healed, afterHP = confirmHealIncrease(curHP, 2)
+                            else
+                                warn("[Auto Heal Mobile] Callback fallback: " .. tostring(guiResult))
+                            end
+                        end
+
+                        if healed then
+                            sendNotification("Auto Heal", "ยืนยันว่า HP เพิ่มเป็น " .. math.floor(afterHP))
+                        else
+                            sendNotification("Auto Heal", "ส่งคำสั่งแล้ว แต่ HP ยังไม่เพิ่ม; ตรวจช่อง 4 และจำนวนยา")
+                        end
+                    else
+                        lastHealTime = tick()
+                        sendNotification("Auto Heal", result)
+                        warn("[Auto Heal " .. activeHealMode .. "] " .. tostring(result))
+                    end
                 end
 
                 isHealing = false
@@ -1467,39 +2043,71 @@ end)
 -- ================================================
 
 local chestRetryAt = {}
-local CHEST_RETRY_COOLDOWN = 3
+local CHEST_RETRY_COOLDOWN = 15
 local CHEST_ENEMY_CHECK_DISTANCE = 60
+local CHEST_STANDOFF_DISTANCE = 5
+
+-- In the dungeon, only allow Auto Chest to target objects belonging to
+-- the physical room currently shown by Auto Explore. This prevents a chest
+-- left in an earlier room from pulling the player backwards.
+local function getChestWorldRoomName(obj)
+    local gameMap = workspace:FindFirstChild("GameMap")
+    if not gameMap or not obj then return nil end
+
+    local ancestor = obj.Parent
+    while ancestor and ancestor ~= gameMap do
+        if ancestor.Name:match("^Layer_%d+_SmallMap_%d+$")
+            and ancestor.Parent == gameMap then
+            return ancestor.Name
+        end
+        ancestor = ancestor.Parent
+    end
+    return nil
+end
 
 local function findAndTeleportToChest(rootPart)
     if not AUTO_CHEST or not rootPart then
         return false
     end
 
+    local isDungeon = game.PlaceId == EXPLORE_DUNGEON_PLACE_ID
+    local currentRoomKey = isDungeon and getCurrentRoomKey() or nil
+    local currentWorldRoomName = currentRoomKey
+        and currentRoomKey:match("([^/]+)$") or nil
+
+    -- If we cannot identify the current room in the dungeon, fail closed:
+    -- do not use a workspace-wide chest search that could revisit old rooms.
+    if isDungeon and not currentWorldRoomName then
+        return false
+    end
+
     local closestChest, closestDist = nil, SEARCH_RADIUS
     local now = tick()
 
-    -- ค้นหาหีบที่ยังไม่ได้ยืนยันว่าเปิดแล้ว
     for _, obj in ipairs(workspace:GetDescendants()) do
         if (obj:IsA("Model") or obj:IsA("BasePart"))
             and not openedChests[obj]
             and (not chestRetryAt[obj] or now >= chestRetryAt[obj]) then
 
             local name = obj.Name:lower()
-
-            if name:find("chest")
-                or name:find("rewardbox")
+            if name:find("chest") or name:find("rewardbox")
                 or name:find("treasure") then
 
-                local ok, pos = pcall(function()
-                    return obj:GetPivot().Position
-                end)
+                local inCurrentRoom = true
+                if isDungeon then
+                    inCurrentRoom = getChestWorldRoomName(obj) == currentWorldRoomName
+                end
 
-                if ok then
-                    local dist = (pos - rootPart.Position).Magnitude
-
-                    if dist < closestDist then
-                        closestChest = obj
-                        closestDist = dist
+                if inCurrentRoom then
+                    local ok, pos = pcall(function()
+                        return obj:GetPivot().Position
+                    end)
+                    if ok then
+                        local dist = (pos - rootPart.Position).Magnitude
+                        if dist < closestDist then
+                            closestChest = obj
+                            closestDist = dist
+                        end
                     end
                 end
             end
@@ -1511,34 +2119,26 @@ local function findAndTeleportToChest(rootPart)
     end
 
     local chest = closestChest
-
     local ok, chestPos = pcall(function()
         return chest:GetPivot().Position
     end)
-
     if not ok then
         chestRetryAt[chest] = tick() + CHEST_RETRY_COOLDOWN
         return false
     end
 
-    -- ถ้ามีศัตรูใกล้หีบ ให้ Auto Farm จัดการก่อน
+    -- Do not try to open a chest while enemies are close to it.
     local digimons = workspace:FindFirstChild("Digimons")
     local enemies = digimons and digimons:FindFirstChild("Enemies")
-
     if enemies then
         for _, enemy in ipairs(enemies:GetChildren()) do
             if enemy:IsA("Model") then
-                local humanoid = enemy:FindFirstChildOfClass("Humanoid")
-
-                if humanoid and humanoid.Health > 0 then
+                local enemyHumanoid = enemy:FindFirstChildOfClass("Humanoid")
+                if enemyHumanoid and enemyHumanoid.Health > 0 then
                     local enemyOk, enemyPos = pcall(function()
                         return enemy:GetPivot().Position
                     end)
-
-                    if enemyOk
-                        and (enemyPos - chestPos).Magnitude
-                            <= CHEST_ENEMY_CHECK_DISTANCE then
-
+                    if enemyOk and (enemyPos - chestPos).Magnitude <= CHEST_ENEMY_CHECK_DISTANCE then
                         chestRetryAt[chest] = tick() + CHEST_RETRY_COOLDOWN
                         return false
                     end
@@ -1547,39 +2147,55 @@ local function findAndTeleportToChest(rootPart)
         end
     end
 
+    local prompts = {}
+    for _, obj in ipairs(chest:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") and obj.Enabled then
+            table.insert(prompts, obj)
+        end
+    end
+
+    if #prompts == 0 then
+        -- Avoid repeatedly selecting objects that only look like chests.
+        chestRetryAt[chest] = tick() + CHEST_RETRY_COOLDOWN
+        return false
+    end
+
     sendNotification("Auto Chest", "กำลังลองเปิดหีบ...")
 
-    -- ลองเปิดหีบ โดยยังไม่ตั้ง openedChests เป็น true
-    for i = 1, 12 do
+    -- Stand beside the chest, never inside its pivot. Preserve the current
+    -- approach direction so the character is less likely to get trapped.
+    local offset = rootPart.Position - chestPos
+    local flatOffset = Vector3.new(offset.X, 0, offset.Z)
+    if flatOffset.Magnitude < 0.1 then
+        flatOffset = Vector3.new(1, 0, 0)
+    else
+        flatOffset = flatOffset.Unit
+    end
+    local standPos = chestPos + flatOffset * CHEST_STANDOFF_DISTANCE
+
+    pcall(function()
+        rootPart.CFrame = CFrame.new(standPos, chestPos)
+    end)
+    task.wait(0.15)
+
+    -- Make only a small number of attempts; don't keep teleporting onto the chest.
+    for i = 1, 3 do
         if not AUTO_CHEST or not chest.Parent then
             break
         end
-
-        pcall(function()
-            rootPart.CFrame = CFrame.new(
-                chest:GetPivot().Position + Vector3.new(0, 0.5, 0)
-            )
-        end)
-
-        for _, obj in ipairs(chest:GetDescendants()) do
-            if obj:IsA("ProximityPrompt") and obj.Enabled then
+        for _, prompt in ipairs(prompts) do
+            if prompt.Parent and prompt.Enabled and type(fireproximityprompt) == "function" then
                 pcall(function()
-                    obj.RequiresLineOfSight = false
-                    obj.MaxActivationDistance = 500
-                    obj.HoldDuration = 0
-
-                    if fireproximityprompt then
-                        fireproximityprompt(obj)
-                    end
+                    prompt.RequiresLineOfSight = false
+                    prompt.MaxActivationDistance = 20
+                    prompt.HoldDuration = 0
+                    fireproximityprompt(prompt)
                 end)
             end
         end
-
-        task.wait(0.1)
+        task.wait(0.15)
     end
 
-    -- ยืนยันว่าเปิดแล้วเฉพาะเมื่อหีบหายไป
-    -- หรือไม่มี ProximityPrompt ที่ยังเปิดใช้งานเหลืออยู่
     if not chest.Parent then
         openedChests[chest] = true
         chestRetryAt[chest] = nil
@@ -1587,23 +2203,22 @@ local function findAndTeleportToChest(rootPart)
         return true
     end
 
-    local hasEnabledPrompt = false
-
+    local anyEnabledPrompt = false
     for _, obj in ipairs(chest:GetDescendants()) do
         if obj:IsA("ProximityPrompt") and obj.Enabled then
-            hasEnabledPrompt = true
+            anyEnabledPrompt = true
             break
         end
     end
 
-    if not hasEnabledPrompt then
+    if not anyEnabledPrompt then
         openedChests[chest] = true
         chestRetryAt[chest] = nil
         sendNotification("Auto Chest", "ตรวจพบว่าปุ่มเปิดหีบปิดใช้งานแล้ว")
         return true
     end
 
-    -- ยังยืนยันไม่ได้ว่าเปิดสำเร็จ ให้ลองใหม่ภายหลัง
+    -- Skip this chest for a while if it didn't open, letting Auto Farm continue.
     chestRetryAt[chest] = tick() + CHEST_RETRY_COOLDOWN
     return false
 end
@@ -1720,7 +2335,6 @@ local function walkToTarget(character, humanoid, targetPosition)
         path:ComputeAsync(character:GetPivot().Position, targetPosition)
     end)
 
-    -- ถ้าหาเส้นทางไม่ได้ ห้าม MoveTo ตรง ๆ เพราะอาจวิ่งชนกำแพงไม่หยุด
     if not success or path.Status ~= Enum.PathStatus.Success then
         humanoid:MoveTo(character:GetPivot().Position)
         return false
@@ -1761,15 +2375,12 @@ local function walkToTarget(character, humanoid, targetPosition)
 end
 
 -- ================================================
-
 -- AUTO DUNGEON LOOP (WITH GUARD LOCK)
 -- ================================================
 
 local LOBBY_PLACE_ID = 84773733171614
 local DUNGEON_PLACE_ID = 112998674138179
-local DUNGEON_DURATION = 60
-
--- ใช้ DungeonSettings และ DungeonLevels ที่ประกาศไว้ในส่วน UI ด้านบน
+local DUNGEON_MAX_DURATION = 900 -- safety timeout: 15 minutes
 
 local function walkIntoNearestLift()
     local folder = workspace:FindFirstChild("MatchmakingZones")
@@ -1840,17 +2451,14 @@ local function selectForestAndStart()
         return false
     end
 
-    -- อ่านค่าจาก UI
     local mapName = DungeonSettings.Map
     local selectedLevel = DungeonSettings.Level
 
-    -- ตรวจสอบแผนที่
     if not DungeonLevels[mapName] then
         warn("[Dungeon Loop] ชื่อแผนที่ไม่ถูกต้อง:", tostring(mapName))
         return false
     end
 
-    -- ตรวจสอบว่าเลเวลอยู่ในแผนที่ที่เลือก
     local validLevel = false
     for _, levelName in ipairs(DungeonLevels[mapName]) do
         if levelName == selectedLevel then
@@ -1864,7 +2472,6 @@ local function selectForestAndStart()
         return false
     end
 
-    -- เลือกแผนที่
     local mapList = chooseMap:FindFirstChild("MapChooseScrolling", true)
     local mapButton = mapList and mapList:FindFirstChild(mapName, true)
 
@@ -1880,7 +2487,6 @@ local function selectForestAndStart()
 
     task.wait(0.5)
 
-    -- อ่านรายการเลเวลหลังเปลี่ยนแผนที่
     chooseMap = main:FindFirstChild("ChooseMap")
     local levelList = chooseMap
         and chooseMap:FindFirstChild("LevelChooseScrolling")
@@ -1890,7 +2496,6 @@ local function selectForestAndStart()
         return false
     end
 
-    -- ตรวจทั้ง Name และ Text ของปุ่ม โดยคงโครงสร้างเดิม
     local levelButton
     local wantedLevel = tostring(selectedLevel):gsub("%s+", ""):lower()
 
@@ -1918,7 +2523,6 @@ local function selectForestAndStart()
 
     task.wait(0.5)
 
-    -- กด Start
     local mapInfo = chooseMap:FindFirstChild("MapInfo", true)
         or main:FindFirstChild("MapInfo", true)
     local startButton = mapInfo and mapInfo:FindFirstChild("StartButton", true)
@@ -1928,16 +2532,13 @@ local function selectForestAndStart()
         return false
     end
 
-    warn("[Dungeon Loop] พบ StartButton:", startButton.ClassName, startButton:GetFullName())
-
     local startOK = fireButton(startButton)
-    warn("[Dungeon Loop] fireButton result:", startOK)
 
     if not startOK then
         warn("[Dungeon Loop] กด Start ไม่สำเร็จ")
         return false
     end
-    -- กดยืนยัน Start ในหน้ารอ Teleport
+
     local waiting = main:WaitForChild("TeleportWaiting", 15)
     local secondStart = waiting and waiting:WaitForChild("StartButton", 10)
 
@@ -1950,6 +2551,132 @@ local function selectForestAndStart()
     return fireButton(secondStart)
 end
 
+-- Auto Evacuate is allowed only after the actual final room of Floor 3
+-- has reached 100%, and the HUD confirms evacuation progress is complete.
+local function isMapThreeComplete()
+    local mapFrame = getMapFrame()
+    local scrolling = mapFrame and mapFrame:FindFirstChild("ScrollingFrame")
+    local mapThree = scrolling and scrolling:FindFirstChild("Map3")
+    local finalRoom = mapThree and mapThree:FindFirstChild("Layer_3_SmallMap_7")
+
+    if not finalRoom or not finalRoom:IsA("TextButton") then
+        return false
+    end
+
+    local roomPercent = readExplorePercent(finalRoom)
+    if roomPercent == nil or roomPercent < 100 then
+        return false
+    end
+
+    local pg = player:FindFirstChild("PlayerGui")
+    local hud = pg and pg:FindFirstChild("HUD")
+    local stability = hud and hud:FindFirstChild("StabilityPointFrame")
+    local progressFrame = stability and stability:FindFirstChild("ProgressFrame")
+    local progressLabel = progressFrame and progressFrame:FindFirstChild("Progress")
+    local progressText = progressLabel and progressLabel:IsA("TextLabel")
+        and tostring(progressLabel.Text) or ""
+
+    -- The user's in-game check confirmed the room cannot be evacuated before 100%.
+    return progressText:match("100%s*%%") ~= nil
+end
+
+local function autoEvacuateToLobby()
+    local pg = player:FindFirstChild("PlayerGui")
+    local hud = pg and pg:FindFirstChild("HUD")
+    local buttons = hud and hud:FindFirstChild("ButtonsFrame")
+    local evacuate = buttons and buttons:FindFirstChild("EvacuateButton")
+    local imageButton = evacuate and evacuate:FindFirstChild("ImageButton")
+
+    if not imageButton or not fireButton(imageButton) then
+        warn("[Auto Evacuate] กด EvacuateButton ไม่สำเร็จ")
+        return false
+    end
+    print("[Auto Evacuate] กด Evacuate แล้ว กำลังรอประตูชั้น 1")
+
+    -- The extraction portal appears after Evacuate sends the player back to Floor 1.
+    local portal
+    local waitStarted = tick()
+    repeat
+        local gameMap = workspace:FindFirstChild("GameMap")
+        local layer1 = gameMap and gameMap:FindFirstChild("Layer_1_SmallMap_1")
+        local decorations = layer1 and layer1:FindFirstChild("Decorations")
+        portal = decorations and decorations:FindFirstChild("ExtractionPortal")
+        if portal then break end
+        if not AUTO_DUNGEON_LOOP then return false end
+        task.wait(0.25)
+    until tick() - waitStarted >= 15
+
+    if not portal then
+        warn("[Auto Evacuate] ไม่พบ ExtractionPortal หลังอพยพ")
+        return false
+    end
+
+    local mainPart = portal:FindFirstChild("MainPart")
+    local prompt = portal:FindFirstChildWhichIsA("ProximityPrompt", true)
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+
+    if not mainPart or not prompt or not root then
+        warn("[Auto Evacuate] ขาด MainPart, ProximityPrompt หรือตัวละคร")
+        return false
+    end
+
+    -- Match the tested method: overlap the portal center and raise the character 3 studs.
+    root.CFrame = CFrame.new(mainPart.Position + Vector3.new(0, 3, 0))
+    task.wait(0.5)
+
+    if not prompt.Enabled or type(fireproximityprompt) ~= "function" then
+        warn("[Auto Evacuate] Prompt ไม่พร้อม หรือไม่มี fireproximityprompt")
+        return false
+    end
+
+    local promptOK = pcall(function()
+        fireproximityprompt(prompt)
+    end)
+    if not promptOK then
+        warn("[Auto Evacuate] เรียก Rotating Prompt ไม่สำเร็จ")
+        return false
+    end
+
+    local model = pg and pg:FindFirstChild("Model")
+    local extractFrame = model and model:FindFirstChild("ExtractFrame")
+    waitStarted = tick()
+    while AUTO_DUNGEON_LOOP and tick() - waitStarted < 12 do
+        if extractFrame and extractFrame.Visible then break end
+        task.wait(0.25)
+    end
+
+    if not extractFrame or not extractFrame.Visible then
+        warn("[Auto Evacuate] หน้า Extract Rewards ไม่เปิด")
+        return false
+    end
+
+    local backButton = extractFrame:FindFirstChild("BackToLooby")
+    if not backButton or not backButton.Visible or not backButton.Active then
+        warn("[Auto Evacuate] ไม่พบปุ่ม BackToLooby ที่พร้อมใช้งาน")
+        return false
+    end
+
+    -- This exact button signal was already tested successfully by the user.
+    local backOK = false
+    if type(firesignal) == "function" then
+        backOK = pcall(function()
+            firesignal(backButton.Activated)
+        end)
+    end
+    if not backOK then
+        backOK = fireButton(backButton)
+    end
+
+    if not backOK then
+        warn("[Auto Evacuate] เรียก BackToLooby ไม่สำเร็จ")
+        return false
+    end
+
+    print("[Auto Evacuate] เรียก BackToLooby แล้ว กำลังกลับล็อบบี้")
+    return true
+end
+
 local function runDungeonRound()
     if game.PlaceId == LOBBY_PLACE_ID then
         sendNotification(
@@ -1958,49 +2685,83 @@ local function runDungeonRound()
         )
 
         if not walkIntoNearestLift() then
-            warn("[Dungeon Loop] เดินเข้าลิฟต์ไม่สำเร็จ")
+            warn("[Dungeon Loop] เดินเข้าลิฟต์ไม่สำเร็จ จะลองใหม่อัตโนมัติ")
             return
         end
 
         task.wait(1)
 
-        if not selectForestAndStart() then
-            warn("[Dungeon Loop] เลือกแผนที่หรือกด Start ไม่สำเร็จ")
+        local startedOK = selectForestAndStart()
+        if not startedOK then
+            warn("[Dungeon Loop] เลือกแผนที่หรือกด Start ไม่สำเร็จ จะลองใหม่อัตโนมัติ")
+            task.wait(3)
+            return
         end
 
+        -- Wait for teleport to finish before the outer loop attempts another start.
+        local waitStarted = tick()
+        while AUTO_DUNGEON_LOOP and tick() - waitStarted < 120 do
+            if game.PlaceId == DUNGEON_PLACE_ID then
+                print("[Dungeon Loop] เข้า Dungeon สำเร็จ เริ่มรอบฟาร์ม")
+                return
+            end
+            task.wait(1)
+        end
+
+        if AUTO_DUNGEON_LOOP then
+            warn("[Dungeon Loop] รอเข้า Dungeon เกิน 120 วินาที จะลองเริ่มใหม่")
+        end
         return
     end
 
     if game.PlaceId == DUNGEON_PLACE_ID then
-        sendNotification("Dungeon Loop", "เริ่มฟาร์ม 60 วินาที")
+        sendNotification("Dungeon Loop", "เริ่มฟาร์มจนเคลียร์ Map3")
 
         enableAllAutoButtons()
 
         local started = tick()
+        local completed = false
         while AUTO_DUNGEON_LOOP
-            and tick() - started < DUNGEON_DURATION do
-            task.wait(0.25)
+            and tick() - started < DUNGEON_MAX_DURATION do
+            if isMapThreeComplete() and not hasReachableLivingEnemy(120) then
+                completed = true
+                break
+            end
+            task.wait(1)
         end
 
         if not AUTO_DUNGEON_LOOP then return end
 
-        sendNotification("Dungeon Loop", "ครบเวลา กำลังกลับล็อบบี้")
+        if not completed then
+            warn("[Dungeon Loop] ยังไม่ยืนยัน Layer_3_SmallMap_7 ที่ 100% จะตรวจต่อในรอบถัดไป")
+            sendNotification("Dungeon Loop", "ยังไม่ครบชั้น 3 ที่ 100% — ฟาร์มต่อ")
+            return
+        end
 
-        local pg = player:FindFirstChild("PlayerGui")
-        local hud = pg and pg:FindFirstChild("HUD")
-        local buttons = hud and hud:FindFirstChild("ButtonsFrame")
-        local evacuate = buttons and buttons:FindFirstChild("EvacuateButton")
-        local imageButton = evacuate and evacuate:FindFirstChild("ImageButton")
+        sendNotification("Dungeon Loop", "ชั้น 3 ห้อง 7 ครบ 100% แล้ว กำลังอพยพกลับล็อบบี้")
+        local evacuated = autoEvacuateToLobby()
+        if not evacuated then
+            warn("[Dungeon Loop] อพยพไม่สำเร็จ จะตรวจใหม่ในรอบถัดไป")
+            task.wait(3)
+            return
+        end
 
-        if imageButton then
-            fireButton(imageButton)
-        else
-            warn("[Dungeon Loop] ไม่พบ EvacuateButton")
+        -- Do not start another round until the game confirms the return to lobby.
+        local waitStarted = tick()
+        while AUTO_DUNGEON_LOOP and tick() - waitStarted < 120 do
+            if game.PlaceId == LOBBY_PLACE_ID then
+                print("[Dungeon Loop] กลับล็อบบี้แล้ว จะเริ่มดันเจี้ยนรอบใหม่อัตโนมัติ")
+                return
+            end
+            task.wait(1)
+        end
+
+        if AUTO_DUNGEON_LOOP then
+            warn("[Dungeon Loop] ยังไม่กลับล็อบบี้ จะรอตรวจสถานะใหม่")
         end
     end
 end
 
--- ป้องกันรอบดันเจี้ยนทำงานซ้อนกัน
 local dungeonRoundRunning = false
 
 task.spawn(function()
@@ -2019,8 +2780,9 @@ task.spawn(function()
         task.wait(1)
     end
 end)
+
 -- ================================================
--- MAIN LOOP (WITH DYNAMIC ENEMIES FOLDER)
+-- MAIN LOOP (FARM, FEED, DROPS, CHESTS, EXPLORE)
 -- ================================================
 
 task.spawn(function()
@@ -2034,23 +2796,22 @@ task.spawn(function()
         local rootPart = character
             and character:FindFirstChild("HumanoidRootPart")
 
-        -- ค้นหาโฟลเดอร์ศัตรูใหม่ทุกรอบเพื่อป้องกันกรณีฉากเปลี่ยน
         local digimons = workspace:FindFirstChild("Digimons")
         local enemiesFolder = digimons and digimons:FindFirstChild("Enemies")
         local roomKey = getCurrentRoomKey()
 
-        -- ห้องหรือโฟลเดอร์ศัตรูเปลี่ยน: ล้างรายการเป้าหมายเก่า
         if (roomKey and lastRoomKey and roomKey ~= lastRoomKey)
             or (lastEnemiesFolder and enemiesFolder ~= lastEnemiesFolder) then
             table.clear(visited)
+            -- Chest retry delays are room-specific; don't carry a failed attempt
+            -- from the previous room into the room we just entered.
+            table.clear(chestRetryAt)
             sendNotification("Auto Farm", "ตรวจพบห้องใหม่ กำลังเลือกเป้าหมายใหม่")
         end
         if roomKey then lastRoomKey = roomKey end
         lastEnemiesFolder = enemiesFolder
 
         if character and humanoid and rootPart and humanoid.Health > 0 then
-            -- Auto Feed ทำงานแยก thread เพื่อไม่บล็อกลูปหลักของ Auto Farm
-            -- ระหว่างวาร์ป/ให้อาหาร จะพักการเคลื่อนที่ชั่วคราว ป้องกันระบบแย่งตำแหน่งกัน
             if AUTO_FEED and not AUTO_FEED_WORKER_RUNNING then
                 local capture = findNearestCapture(rootPart)
                 if capture then
@@ -2067,7 +2828,6 @@ task.spawn(function()
                 end
             end
 
-            -- Farm / Chest / Drops กลับมาทำงานได้ทันทีเมื่อ Auto Feed เสร็จ
             if not AUTO_FEED_BUSY then
                 local foundChest = findAndTeleportToChest(rootPart)
                 local foundDrop = false
@@ -2079,7 +2839,6 @@ task.spawn(function()
                 if not foundChest and not foundDrop
                     and AUTO_FARM and enemiesFolder then
 
-                    -- เลือกม่อนที่ใกล้ที่สุดก่อน ลดการวิ่งข้ามห้องไปหาเป้าหมายไกล
                     local target, targetDistance = nil, math.huge
                     local myPos = rootPart.Position
 
@@ -2122,7 +2881,6 @@ task.spawn(function()
                             and target.Parent == enemiesFolder
                             and tick() - started < MAX_WALK_TIME do
 
-                            -- ยกเลิกทันทีถ้าห้องเปลี่ยนหรือเป้าหมายไม่อยู่ในโฟลเดอร์ห้องนี้แล้ว
                             local currentRoomKey = getCurrentRoomKey()
                             if (targetRoomKey and currentRoomKey
                                 and currentRoomKey ~= targetRoomKey)
@@ -2159,7 +2917,6 @@ task.spawn(function()
                             end
                         end
 
-                        -- จำเป้าหมายที่ไปไม่ถึงไว้ เพื่อให้รอบถัดไปเลือกม่อนตัวอื่น
                         if pathFailed then
                             visited[target] = true
                             sendNotification("Auto Farm", "ไปไม่ถึงเป้าหมาย ข้ามไปหาม่อนตัวอื่น")
