@@ -1603,82 +1603,111 @@ local function triggerSlot4Potion(mode)
     local pg = player:FindFirstChild("PlayerGui")
     local hud = pg and pg:FindFirstChild("HUD")
     local quickItem = hud and hud:FindFirstChild("QuickItem", true)
-
     if not quickItem then
         return false, "ไม่พบ HUD.QuickItem (ช่องยา 4)"
     end
 
-    -- In the known UI layout QuickItem itself is the slot-4 button. Do not
-    -- iterate every descendant button: that can accidentally activate another
-    -- hotbar slot, especially on mobile where QuickItem may be a Frame.
-    local button = quickItem
-    if not button:IsA("GuiButton") then
-        local named = quickItem:FindFirstChild("Slot4", true)
-            or quickItem:FindFirstChild("Item4", true)
-            or quickItem:FindFirstChild("Button4", true)
-        if named and named:IsA("GuiButton") then
-            button = named
-        else
-            -- Some mobile builds wrap the slot-4 tap target in a Frame. If it
-            -- contains exactly one button, that button is unambiguous.
-            local onlyButton = nil
-            local buttonCount = 0
-            for _, child in ipairs(quickItem:GetDescendants()) do
-                if child:IsA("GuiButton") then
-                    buttonCount += 1
-                    onlyButton = child
-                end
+    -- QuickItem อาจเป็นกรอบรวมของแถบไอเทม ไม่ใช่ปุ่มช่อง 4 เอง
+    -- ดังนั้นค้นหาปุ่มลูกก่อนเสมอ เพื่อไม่ให้แตะกลางกรอบรวมผิดตำแหน่ง
+    local buttons = {}
+    for _, child in ipairs(quickItem:GetDescendants()) do
+        if child:IsA("GuiButton") and child.Visible and child.Active then
+            table.insert(buttons, child)
+        end
+    end
+    if quickItem:IsA("GuiButton") and quickItem.Visible and quickItem.Active then
+        table.insert(buttons, quickItem)
+    end
+
+    if #buttons == 0 then
+        return false, "QuickItem ไม่มี GuiButton ที่มองเห็นและ Active; QuickItem=" .. quickItem.ClassName
+    end
+
+    local function markerFor(obj)
+        local bits = {obj.Name}
+        if obj:IsA("TextButton") then table.insert(bits, obj.Text) end
+        for _, d in ipairs(obj:GetDescendants()) do
+            if d:IsA("TextLabel") or d:IsA("TextButton") then
+                table.insert(bits, d.Name)
+                table.insert(bits, tostring(d.Text or ""))
             end
-            if buttonCount == 1 then
-                button = onlyButton
-            else
-                -- Otherwise accept a button whose own name/text clearly marks 4.
-                for _, child in ipairs(quickItem:GetDescendants()) do
-                    if child:IsA("GuiButton") then
-                        local marker = (child.Name .. " " .. tostring(child.Text or "")):lower()
-                        if marker:match("slot%s*4") or marker:match("item%s*4")
-                            or marker:match("button%s*4") or marker:match("^%s*4%s*$") then
-                            button = child
-                            break
-                        end
-                    end
-                end
-                if button == quickItem then
-                    return false, "พบ QuickItem แต่ยังระบุปุ่มช่อง 4 ที่ถูกต้องไม่ได้"
-                end
-            end
+        end
+        return table.concat(bits, " "):lower()
+    end
+
+    local target = nil
+    -- ชื่อปุ่ม/ข้อความที่ระบุช่อง 4 ชัดเจนมาก่อน
+    for _, b in ipairs(buttons) do
+        local marker = markerFor(b)
+        if marker:match("slot%s*4") or marker:match("item%s*4")
+            or marker:match("button%s*4") or marker:match("quickitem%s*4")
+            or marker:match("^%s*4%s*$") or marker:match("[%s_%-]4[%s_%-]") then
+            target = b
+            break
         end
     end
 
-    if not button.Visible or not button.Active then
-        return false, "ช่องยา 4 ยังไม่พร้อมใช้งาน"
+    -- ถ้า UI ไม่ตั้งชื่อช่องไว้ ให้เรียงปุ่มในแถบเดียวกันจากซ้ายไปขวา
+    -- แล้วเลือกปุ่มลำดับที่ 4 เฉพาะเมื่อมีอย่างน้อย 4 ปุ่มในแถบเดียวกัน.
+    if not target then
+        local rows = {}
+        for _, b in ipairs(buttons) do
+            local pos, size = b.AbsolutePosition, b.AbsoluteSize
+            if size.X > 0 and size.Y > 0 then
+                local rowKey = math.floor((pos.Y + size.Y / 2) / 25)
+                rows[rowKey] = rows[rowKey] or {}
+                table.insert(rows[rowKey], b)
+            end
+        end
+        local bestRow, bestCount = nil, 0
+        for _, row in pairs(rows) do
+            table.sort(row, function(a, b)
+                return a.AbsolutePosition.X < b.AbsolutePosition.X
+            end)
+            if #row > bestCount then bestRow, bestCount = row, #row end
+        end
+        if bestRow and #bestRow >= 4 then
+            target = bestRow[4]
+        elseif #buttons == 1 then
+            target = buttons[1]
+        end
     end
 
-    -- Mobile must use a touch event first. fireButton can report that a signal
-    -- was fired even when the mobile UI did not receive a real tap.
+    if not target then
+        local details = {}
+        for i, b in ipairs(buttons) do
+            if i > 12 then break end
+            table.insert(details, b.Name .. "(" .. b.ClassName .. ")")
+        end
+        return false, "หาเป้าหมายช่อง 4 ไม่ชัดเจนใน QuickItem; ปุ่มที่พบ: " .. table.concat(details, ", ")
+    end
+
+    if not target.Visible or not target.Active then
+        return false, "ปุ่มช่อง 4 ยังไม่พร้อมใช้งาน: " .. target:GetFullName()
+    end
+
     if tostring(mode) == "Mobile" then
-        if clickHealMobileButton(button) then
-            print("[Auto Heal Mobile] ส่ง Touch ไปช่องยา 4:", button:GetFullName())
-            return true, "ส่ง Touch ช่องยา 4 แล้ว; กำลังตรวจ HP"
+        if clickHealMobileButton(target) then
+            print("[Auto Heal Mobile] ส่ง Touch ไปปุ่มช่อง 4 โดยตรง:", target:GetFullName())
+            return true, "แตะปุ่มช่อง 4 แล้ว; กำลังตรวจ HP"
         end
-        if fireButton(button) then
-            print("[Auto Heal Mobile] Fired slot 4 callback:", button:GetFullName())
-            return true, "เรียก callback ช่องยา 4 แล้ว; กำลังตรวจ HP"
+        if fireButton(target) then
+            print("[Auto Heal Mobile] Fired callback ช่อง 4:", target:GetFullName())
+            return true, "เรียก callback ช่อง 4 แล้ว; กำลังตรวจ HP"
         end
     else
-        if fireButton(button) then
-            print("[Auto Heal PC] Fired slot 4 button:", button:GetFullName())
-            return true, "ส่งคำสั่งช่องยา 4 แล้ว; กำลังตรวจ HP"
+        if fireButton(target) then
+            print("[Auto Heal PC] Fired slot 4 button:", target:GetFullName())
+            return true, "ส่งคำสั่งช่อง 4 แล้ว; กำลังตรวจ HP"
         end
-        if clickHealGuiButton(button) then
-            print("[Auto Heal PC] Clicked slot 4 button:", button:GetFullName())
-            return true, "คลิกช่องยา 4 แล้ว; กำลังตรวจ HP"
+        if clickHealGuiButton(target) then
+            print("[Auto Heal PC] Clicked slot 4 button:", target:GetFullName())
+            return true, "คลิกช่อง 4 แล้ว; กำลังตรวจ HP"
         end
     end
-
-    return false, "กดช่องยา 4 ไม่สำเร็จ"
+    return false, "กดปุ่มช่อง 4 ไม่สำเร็จ: " .. target:GetFullName()
 end
--- ตรวจ HP ซ้ำหลังใช้คำสั่ง เพื่อไม่รายงานว่าใช้ยาสำเร็จจากการกดปุ่มอย่างเดียว
+
 local function confirmHealIncrease(previousHP, timeout)
     local deadline = tick() + (timeout or 2)
     while tick() < deadline do
