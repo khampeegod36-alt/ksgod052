@@ -15,9 +15,9 @@ local player = Players.LocalPlayer
 
 -- CONFIG
 local DIGIMON_SCRIPT_URL =
-    "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra5.lua"
+    "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra4.lua"
 
-local UI_NAME ="DigimonEra5_MultiUI"
+local UI_NAME ="DigimonEra4_MultiUI"
 local MIN_DISTANCE = 30
 local ARRIVAL_DISTANCE = 4
 local MAX_WALK_TIME = 10
@@ -76,7 +76,7 @@ local function setupTeleportQueue()
         local Players = game:GetService("Players")
         local CoreGui = game:GetService("CoreGui")
         local player = Players.LocalPlayer
-        local UI_NAME = "DigimonEra5_MultiUI"
+        local UI_NAME = "DigimonEra4_MultiUI"
 
         local function hasUI(parent)
             return parent ~= nil
@@ -94,7 +94,7 @@ local function setupTeleportQueue()
         end
 
         local ok, err = pcall(function()
-            local url = "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra5.lua"
+            local url = "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra4.lua"
             local src = game:HttpGet(url, true)
             local fn, loadErr = loadstring(src)
 
