@@ -1695,7 +1695,20 @@ local function triggerSlot4Potion(mode, forceGui)
                 if obj:IsA("TextButton") or obj:IsA("ImageButton") then
                     local buttonText = ""
                     pcall(function() buttonText = tostring(obj.Text) end)
-                    if buttonText:match("^%s*4%s*$") and obj.Visible and obj.Active
+                    local hasFourLabel = buttonText:match("^%s*4%s*$") ~= nil
+                    if not hasFourLabel then
+                        for _, child in ipairs(obj:GetDescendants()) do
+                            if child:IsA("TextLabel") or child:IsA("TextButton") then
+                                local labelText = ""
+                                pcall(function() labelText = tostring(child.Text) end)
+                                if labelText:match("^%s*4%s*$") then
+                                    hasFourLabel = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    if hasFourLabel and obj.Visible and obj.Active
                         and visibleThroughParents(obj) then
                         table.insert(candidates, obj)
                     end
@@ -1921,10 +1934,17 @@ task.spawn(function()
 
                 isHealing = true
 
-                -- Keep PC behavior separate. Mobile now also checks/selects/equips
-                -- Single Healing Potion S instead of assuming the potion is already
-                -- equipped; this restores the mobile inventory/equip stage.
-                local ready = ensureHealPotionEquipped(activeHealMode)
+                -- MOBILE-ONLY FIX:
+                -- The user has already placed the potion in slot 4. Do not reopen
+                -- Item/inventory or block slot-4 tapping on an equip-state detector.
+                -- Keep the original PC equip/use flow completely unchanged.
+                local ready
+                if activeHealMode == "Mobile" then
+                    ready = true
+                    print("[Auto Heal Mobile] ข้ามการเปิดกระเป๋า: ใช้ยาที่อยู่ช่อง 4 โดยตรง")
+                else
+                    ready = ensureHealPotionEquipped(activeHealMode)
+                end
 
                 if not ready then
                     lastHealTime = tick()
