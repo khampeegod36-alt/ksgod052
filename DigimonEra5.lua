@@ -1279,6 +1279,13 @@ local lastHealTime = 0
 local lastEquipAttempt = 0
 local isHealing = false
 local isEquipping = false
+local lastHealDebugAt = 0
+local function healDebug(message)
+    if tick() - lastHealDebugAt >= 4 then
+        lastHealDebugAt = tick()
+        warn("[Auto Heal] " .. tostring(message))
+    end
+end
 
 -- Keep the original working UI object name first; some UI versions display
 -- "Single Healing Potion S" while the instance is still named "Single Heal Potion S".
@@ -1339,10 +1346,16 @@ local function getHealItemControls()
 
     -- Inventory item Instances are often named generic IDs; the potion name is
     -- displayed by a descendant TextLabel. Match both Instance.Name and UI text.
+    local function normalizeItemName(value)
+        return tostring(value or ""):lower():gsub("[%p%c]", " "):gsub("%s+", " "):match("^%s*(.-)%s*$")
+    end
+
     local function isPotionName(value)
-        value = tostring(value or ""):lower():gsub("%s+", " ")
-        return value == HEAL_ITEM_NAME:lower()
-            or value == HEAL_ITEM_NAME_FALLBACK:lower()
+        local name = normalizeItemName(value)
+        return name == normalizeItemName(HEAL_ITEM_NAME)
+            or name == normalizeItemName(HEAL_ITEM_NAME_FALLBACK)
+            or name:find("single healing potion s", 1, true) ~= nil
+            or name:find("single heal potion s", 1, true) ~= nil
     end
 
     local function findPotion(container)
@@ -1350,17 +1363,30 @@ local function getHealItemControls()
         if isPotionName(container.Name) then return container end
 
         for _, obj in ipairs(container:GetDescendants()) do
-            if isPotionName(obj.Name) then return obj end
-            if obj:IsA("TextLabel") or obj:IsA("TextButton") then
-                if isPotionName(obj.Text) then
-                    -- Return the row/button that owns the displayed potion name.
-                    local ancestor = obj
-                    while ancestor and ancestor ~= container do
-                        if ancestor:IsA("GuiButton") then return ancestor end
-                        ancestor = ancestor.Parent
+            local matched = isPotionName(obj.Name)
+            if not matched and (obj:IsA("TextLabel") or obj:IsA("TextButton")) then
+                matched = isPotionName(obj.Text)
+            end
+            if matched then
+                -- IMPORTANT: return the inventory row/container, not its TextLabel.
+                -- Returning the label made the old code search for clickable children
+                -- inside a label (there are none), so the potion was never selected.
+                local ancestor = obj
+                while ancestor and ancestor ~= container do
+                    if ancestor:IsA("GuiButton") then return ancestor end
+                    if ancestor:IsA("Frame") or ancestor:IsA("ScrollingFrame") then
+                        local hasItemName = false
+                        for _, sub in ipairs(ancestor:GetDescendants()) do
+                            if (sub:IsA("TextLabel") or sub:IsA("TextButton")) and isPotionName(sub.Text) then
+                                hasItemName = true
+                                break
+                            end
+                        end
+                        if hasItemName then return ancestor end
                     end
-                    return obj
+                    ancestor = ancestor.Parent
                 end
+                return obj
             end
         end
         return nil
@@ -1421,8 +1447,8 @@ local function ensureHealPotionEquipped()
     if tick() - lastEquipAttempt < 2 then return false end
 
     local controls = getHealItemControls()
-    if not controls or not controls.item or not controls.equip
-        or not controls.modeName then
+    if not controls or not controls.item or not controls.equip or not controls.modeName then
+        healDebug("หาแผง Inventory/รายการ Single Healing Potion S/ปุ่ม Equip ไม่ครบ; เปิดหน้ากระเป๋าไว้แล้วลองอีกครั้ง")
         return false
     end
 
@@ -1432,6 +1458,7 @@ local function ensureHealPotionEquipped()
     end
 
     if controls.modeName.Text ~= "Equip" then
+        healDebug("พบยาแต่สถานะปุ่มไม่ใช่ Equip: " .. tostring(controls.modeName.Text))
         return false
     end
 
@@ -1443,17 +1470,20 @@ local function ensureHealPotionEquipped()
         -- จึงรองรับทั้งกรณีตัวรายการเป็นปุ่ม และกรณีต้องคลิกปุ่มลูก
         local selected = false
         if controls.item:IsA("GuiButton") then
-            -- Prefer firing the GUI's actual connected handler; a coordinate
-            -- click can report success without selecting the inventory row.
             selected = fireButton(controls.item)
             if not selected then selected = clickHealGuiButton(controls.item) end
         else
+            -- Prefer an explicit item-select button inside the row. If none exists,
+            -- tap the visible row itself (mobile inventory rows are often Frames).
             for _, child in ipairs(controls.item:GetDescendants()) do
                 if child:IsA("GuiButton") and child.Visible and child.Active then
                     selected = fireButton(child)
                     if not selected then selected = clickHealGuiButton(child) end
                     if selected then break end
                 end
+            end
+            if not selected and controls.item:IsA("GuiObject") then
+                selected = clickHealGuiButton(controls.item)
             end
         end
         if not selected then
@@ -1467,7 +1497,8 @@ local function ensureHealPotionEquipped()
         if updated and updated.modeName
             and updated.modeName.Text == "Equip"
             and updated.equip.Visible then
-            clickHealGuiButton(updated.equip)
+            local equipClicked = fireButton(updated.equip)
+            if not equipClicked then clickHealGuiButton(updated.equip) end
         end
     end)
 
@@ -1489,6 +1520,7 @@ local function ensureHealPotionEquipped()
         return true
     end
 
+    healDebug("คลิก/Equip ยาไม่สำเร็จ; กรุณาเปิด Inventory ค้างไว้ แล้วดูชื่อ warning นี้ใน Console")
     return false
 end
 
