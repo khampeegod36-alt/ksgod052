@@ -1,4 +1,3 @@
-02:08:50 -- ===== PC EQUIP RESULT =====
 02:08:50 -- Slot 4 path: Players.ksgodA0.PlayerGui.HUD.QuickItem
 02:08:50 -- Slot amount: 
 02:08:50 -- Slot image: rbxassetid://9954301632
