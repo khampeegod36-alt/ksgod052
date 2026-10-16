@@ -1599,7 +1599,20 @@ end
 
 -- ใช้ยาผ่านปุ่ม QuickItem; บาง UI มือถือ QuickItem เป็น Frame
 -- และปุ่มกดจริงอยู่ข้างใน ไม่ใช่ตัว QuickItem เอง.
-local function triggerSlot4Potion(mode)
+local function triggerSlot4Potion(mode, forceGui)
+    -- PC fallback: the game's keyboard hotkey for quick slot 4 can work even
+    -- when QuickItem is only a container and exposes no identifiable child button.
+    if tostring(mode) ~= "Mobile" and not forceGui then
+        local keySent = pcall(function()
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Four, false, game)
+            task.wait(0.08)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Four, false, game)
+        end)
+        if keySent then
+            print("[Auto Heal PC] ส่งปุ่มคีย์บอร์ด 4 เพื่อใช้ยา")
+            return true, "ส่งปุ่มคีย์บอร์ด 4 แล้ว; กำลังตรวจ HP"
+        end
+    end
     local pg = player:FindFirstChild("PlayerGui")
     local hud = pg and pg:FindFirstChild("HUD")
     local quickItem = hud and hud:FindFirstChild("QuickItem", true)
@@ -1745,32 +1758,45 @@ task.spawn(function()
 
                 isHealing = true
 
-                -- ยืนยันจากผู้ใช้ว่ายาติดตั้งอยู่ช่อง 4 แล้ว:
-                -- ข้าม Inventory/Equip ทั้งหมด และกดช่อง 4 โดยตรง
-                -- เพื่อไม่ให้สถานะ ModeName ใน Inventory ขวางการใช้ยา
-                print("[Auto Heal " .. activeHealMode .. "] HP=" .. tostring(curHP) .. "/" .. tostring(maxHP) .. "; กดใช้ยาช่อง 4 โดยตรง")
-                local used, result = triggerSlot4Potion(activeHealMode)
-                if used then
-                    -- Cooldown begins after a command was actually sent.
-                    lastHealTime = tick()
-                    local healed, afterHP = confirmHealIncrease(curHP, 2)
+                -- PC UI: first ensure Single Healing Potion S is selected/equipped.
+                -- Mobile UI: the user has already confirmed the potion is in slot 4,
+                -- so skip Inventory selection and only trigger the slot.
+                local ready = true
+                if activeHealMode == "PC" then
+                    ready = ensureHealPotionEquipped(activeHealMode)
+                end
 
-                    if healed then
-                        sendNotification(
-                            "Auto Heal",
-                            "ยืนยันว่า HP เพิ่มเป็น " .. math.floor(afterHP)
-                        )
-                    else
-                        sendNotification(
-                            "Auto Heal",
-                            "ส่งคำสั่งแล้ว แต่ยังยืนยันว่า HP เพิ่มไม่ได้"
-                        )
-                    end
-                else
-                    -- Brief cooldown prevents repeated rapid attempts if the slot is unavailable.
+                if not ready then
                     lastHealTime = tick()
-                    sendNotification("Auto Heal", result)
-            warn("[Auto Heal " .. activeHealMode .. "] " .. tostring(result))
+                    warn("[Auto Heal PC] ยัง Equip ยาไม่สำเร็จ; เปิด Inventory ให้เห็น Single Healing Potion S และปุ่ม Equip แล้วลองใหม่")
+                else
+                    print("[Auto Heal " .. activeHealMode .. "] HP=" .. tostring(curHP) .. "/" .. tostring(maxHP) .. "; เริ่มใช้ยาช่อง 4")
+                    local used, result = triggerSlot4Potion(activeHealMode)
+                    if used then
+                        lastHealTime = tick()
+                        local healed, afterHP = confirmHealIncrease(curHP, 2)
+
+                        -- If PC hotkey 4 did not change HP, try the actual visible slot button.
+                        if not healed and activeHealMode == "PC" then
+                            warn("[Auto Heal PC] กดคีย์ 4 แล้ว HP ไม่เพิ่ม; ลองปุ่ม GUI ช่อง 4")
+                            local guiSent, guiResult = triggerSlot4Potion(activeHealMode, true)
+                            if guiSent then
+                                healed, afterHP = confirmHealIncrease(curHP, 2)
+                            else
+                                warn("[Auto Heal PC] GUI fallback: " .. tostring(guiResult))
+                            end
+                        end
+
+                        if healed then
+                            sendNotification("Auto Heal", "ยืนยันว่า HP เพิ่มเป็น " .. math.floor(afterHP))
+                        else
+                            sendNotification("Auto Heal", "ส่งคำสั่งแล้ว แต่ HP ยังไม่เพิ่ม; ตรวจช่อง 4 และจำนวนยา")
+                        end
+                    else
+                        lastHealTime = tick()
+                        sendNotification("Auto Heal", result)
+                        warn("[Auto Heal " .. activeHealMode .. "] " .. tostring(result))
+                    end
                 end
 
                 isHealing = false
