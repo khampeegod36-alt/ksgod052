@@ -1295,7 +1295,10 @@ local lastEquipAttempt = 0
 local isHealing = false
 local isEquipping = false
 
-local HEAL_ITEM_NAME = "Single Healing Potion S"
+-- Keep the original working UI object name first; some UI versions display
+-- "Single Healing Potion S" while the instance is still named "Single Heal Potion S".
+local HEAL_ITEM_NAME = "Single Heal Potion S"
+local HEAL_ITEM_NAME_FALLBACK = "Single Healing Potion S"
 
 -- ค้นหา HP จาก TextLabel ที่แสดง current/max
 local function getDigimonHP()
@@ -1331,6 +1334,10 @@ local function getHealItemControls()
 
     local scrolling = itemBox:FindFirstChild("ScrollingFrame")
     local item = scrolling and scrolling:FindFirstChild(HEAL_ITEM_NAME)
+    -- Prefer the original instance name, then try the inventory's displayed name.
+    if not item and scrolling then
+        item = scrolling:FindFirstChild(HEAL_ITEM_NAME_FALLBACK)
+    end
 
     local info = itemBox:FindFirstChild("InfoFrame")
     local equip = info and info:FindFirstChild("ItemEquip")
