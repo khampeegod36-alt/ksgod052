@@ -1615,9 +1615,8 @@ local function triggerSlot4Potion(mode)
             table.insert(buttons, child)
         end
     end
-    if quickItem:IsA("GuiButton") and quickItem.Visible and quickItem.Active then
-        table.insert(buttons, quickItem)
-    end
+    -- IMPORTANT: never tap the QuickItem container itself. It may cover nearby
+    -- controls (including Inventory) and is not proof that this is slot 4.
 
     if #buttons == 0 then
         return false, "QuickItem ไม่มี GuiButton ที่มองเห็นและ Active; QuickItem=" .. quickItem.ClassName
@@ -1668,8 +1667,8 @@ local function triggerSlot4Potion(mode)
         end
         if bestRow and #bestRow >= 4 then
             target = bestRow[4]
-        elseif #buttons == 1 then
-            target = buttons[1]
+        -- Do not guess when only one unlabeled child exists: it may be a
+        -- container/other slot. Require an explicit slot marker or a row of 4+.
         end
     end
 
@@ -1679,7 +1678,7 @@ local function triggerSlot4Potion(mode)
             if i > 12 then break end
             table.insert(details, b.Name .. "(" .. b.ClassName .. ")")
         end
-        return false, "หาเป้าหมายช่อง 4 ไม่ชัดเจนใน QuickItem; ปุ่มที่พบ: " .. table.concat(details, ", ")
+        return false, "หยุดเพื่อไม่แตะผิดปุ่ม: ระบุช่อง 4 ใน QuickItem ไม่ได้; ปุ่มลูกที่พบ: " .. table.concat(details, ", ")
     end
 
     if not target.Visible or not target.Active then
@@ -1771,6 +1770,7 @@ task.spawn(function()
                     -- Brief cooldown prevents repeated rapid attempts if the slot is unavailable.
                     lastHealTime = tick()
                     sendNotification("Auto Heal", result)
+            warn("[Auto Heal " .. activeHealMode .. "] " .. tostring(result))
                 end
 
                 isHealing = false
