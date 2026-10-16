@@ -1,8 +1,5 @@
-02:08:50 -- Slot 4 path: Players.ksgodA0.PlayerGui.HUD.QuickItem
-02:08:50 -- Slot amount: 
-02:08:50 -- Slot image: rbxassetid://9954301632
-02:08:50 -- Potion inventory amount: x201
-02:08:50 -- ===== END =====print("[Digimon Era] SCRIPT STARTED - GUI FIXED & VISIBLE")
+
+print("[Digimon Era] SCRIPT STARTED - GUI FIXED & VISIBLE")
 -- ================================================
 -- DIGIMON ERA AUTO FARM + AUTO FEED + AUTO EXPLORE + DUNGEON LOOP
 -- (FULL VERSION 100% - GUI FIX)
