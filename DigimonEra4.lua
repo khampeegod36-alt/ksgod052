@@ -1,4 +1,9 @@
-print("[Digimon Era] SCRIPT STARTED - GUI FIXED & VISIBLE")
+02:08:50 -- ===== PC EQUIP RESULT =====
+02:08:50 -- Slot 4 path: Players.ksgodA0.PlayerGui.HUD.QuickItem
+02:08:50 -- Slot amount: 
+02:08:50 -- Slot image: rbxassetid://9954301632
+02:08:50 -- Potion inventory amount: x201
+02:08:50 -- ===== END =====print("[Digimon Era] SCRIPT STARTED - GUI FIXED & VISIBLE")
 -- ================================================
 -- DIGIMON ERA AUTO FARM + AUTO FEED + AUTO EXPLORE + DUNGEON LOOP
 -- (FULL VERSION 100% - GUI FIX)
@@ -15,7 +20,7 @@ local player = Players.LocalPlayer
 
 -- CONFIG
 local DIGIMON_SCRIPT_URL =
-    "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra4.lua"
+    "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra5.lua"
 
 local UI_NAME ="DigimonEra5_MultiUI"
 local MIN_DISTANCE = 30
@@ -76,7 +81,7 @@ local function setupTeleportQueue()
         local Players = game:GetService("Players")
         local CoreGui = game:GetService("CoreGui")
         local player = Players.LocalPlayer
-        local UI_NAME = "DigimonEra4_MultiUI"
+        local UI_NAME = "DigimonEra5_MultiUI"
 
         local function hasUI(parent)
             return parent ~= nil
@@ -94,7 +99,7 @@ local function setupTeleportQueue()
         end
 
         local ok, err = pcall(function()
-            local url = "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra4.lua"
+            local url = "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra5.lua"
             local src = game:HttpGet(url, true)
             local fn, loadErr = loadstring(src)
 
@@ -1640,14 +1645,18 @@ local function ensureHealPotionEquipped(mode)
                 end
             end
         else
+            -- PC inventory confirmed in-game: the potion row itself is a TextButton
+            -- at Main.ItemBox.ScrollingFrame["Single Heal Potion S"]. Prefer a real
+            -- visible UI click so the game's item-selection handler actually runs;
+            -- use the signal helper only as fallback.
             if controls.item:IsA("GuiButton") then
-                selected = fireButton(controls.item)
-                if not selected then selected = clickHealGuiButton(controls.item) end
+                selected = clickHealGuiButton(controls.item)
+                if not selected then selected = fireButton(controls.item) end
             else
                 for _, child in ipairs(controls.item:GetDescendants()) do
                     if child:IsA("GuiButton") and child.Visible and child.Active then
-                        selected = fireButton(child)
-                        if not selected then selected = clickHealGuiButton(child) end
+                        selected = clickHealGuiButton(child)
+                        if not selected then selected = fireButton(child) end
                         if selected then break end
                     end
                 end
@@ -1668,8 +1677,10 @@ local function ensureHealPotionEquipped(mode)
             if mobileMode then
                 equipClicked = clickMobileTarget(updated.equip)
             else
-                equipClicked = fireButton(updated.equip)
-                if not equipClicked then equipClicked = clickHealGuiButton(updated.equip) end
+                -- Prefer the actual visible PC Equip button click; only fall back
+                -- to firing the GUI signal if the input click could not be sent.
+                equipClicked = clickHealGuiButton(updated.equip)
+                if not equipClicked then equipClicked = fireButton(updated.equip) end
             end
             print("[Auto Heal " .. tostring(mode or "PC") .. "] แตะ/คลิก Equip:", equipClicked, updated.equip:GetFullName())
         end
@@ -1969,17 +1980,11 @@ task.spawn(function()
 
                 isHealing = true
 
-                -- MOBILE-ONLY FIX:
-                -- The user has already placed the potion in slot 4. Do not reopen
-                -- Item/inventory or block slot-4 tapping on an equip-state detector.
-                -- Keep the original PC equip/use flow completely unchanged.
-                local ready
-                if activeHealMode == "Mobile" then
-                    ready = true
-                    print("[Auto Heal Mobile] ข้ามการเปิดกระเป๋า: ใช้ยาที่อยู่ช่อง 4 โดยตรง")
-                else
-                    ready = ensureHealPotionEquipped(activeHealMode)
-                end
+                -- Each mode keeps its own input method, but both modes may need to
+                -- equip Single Heal Potion S into slot 4. Mobile uses touch-first
+                -- selection/Equip; PC uses the visible inventory button click above.
+                -- Do not alter either Auto Heal toggle or any other system here.
+                local ready = ensureHealPotionEquipped(activeHealMode)
 
                 if not ready then
                     lastHealTime = tick()
