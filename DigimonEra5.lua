@@ -1569,8 +1569,10 @@ local function openHealBagIfNeeded(mode, controls)
     if tostring(mode) == "Mobile" then
         clicked = clickHealMobileButton(target)
     else
-        clicked = fireButton(target)
-        if not clicked then clicked = clickHealGuiButton(target) end
+        -- PC inventory UI must receive an actual mouse press; fireButton can return
+        -- true after firing a callback even when the game's visible UI did not open.
+        clicked = clickHealGuiButton(target)
+        if not clicked then clicked = fireButton(target) end
     end
     print("[Auto Heal " .. tostring(mode or "PC") .. "] กด UI Item ก่อนค้นหายา:", clicked, target:GetFullName())
     task.wait(0.5)
@@ -1623,13 +1625,13 @@ local function ensureHealPotionEquipped(mode)
             end
         else
             if controls.item:IsA("GuiButton") then
-                selected = fireButton(controls.item)
-                if not selected then selected = clickHealGuiButton(controls.item) end
+                selected = clickHealGuiButton(controls.item)
+                if not selected then selected = fireButton(controls.item) end
             else
                 for _, child in ipairs(controls.item:GetDescendants()) do
                     if child:IsA("GuiButton") and child.Visible and child.Active then
-                        selected = fireButton(child)
-                        if not selected then selected = clickHealGuiButton(child) end
+                        selected = clickHealGuiButton(child)
+                        if not selected then selected = fireButton(child) end
                         if selected then break end
                     end
                 end
@@ -1650,8 +1652,16 @@ local function ensureHealPotionEquipped(mode)
             if mobileMode then
                 equipClicked = clickMobileTarget(updated.equip)
             else
-                equipClicked = fireButton(updated.equip)
-                if not equipClicked then equipClicked = clickHealGuiButton(updated.equip) end
+                equipClicked = clickHealGuiButton(updated.equip)
+                task.wait(0.25)
+                local afterMouseClick = getHealItemControls()
+                if not (afterMouseClick and afterMouseClick.modeName
+                    and tostring(afterMouseClick.modeName.Text):lower():match("remove")) then
+                    -- Callback fallback only if the visible PC click did not equip it.
+                    local latestEquip = afterMouseClick and afterMouseClick.equip or updated.equip
+                    local callbackSent = fireButton(latestEquip)
+                    equipClicked = equipClicked or callbackSent
+                end
             end
             print("[Auto Heal " .. tostring(mode or "PC") .. "] แตะ/คลิก Equip:", equipClicked, updated.equip:GetFullName())
         end
