@@ -26,7 +26,9 @@ local SEARCH_RADIUS = 500
 local AUTO_FARM = false
 local AUTO_CHEST = false
 local AUTO_DROPS = false
-local AUTO_HEAL = false
+local AUTO_HEAL = false -- legacy compatibility
+local AUTO_HEAL_PC = false
+local AUTO_HEAL_MOBILE = false
 local AUTO_FEED = false
 local AUTO_FEED_BUSY = false
 local AUTO_FEED_WORKER_RUNNING = false
@@ -189,7 +191,7 @@ end
 
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 210, 0, 420)
+mainFrame.Size = UDim2.new(0, 210, 0, 480)
 mainFrame.Position = UDim2.new(0.75, 0, 0.2, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.Active = true
@@ -229,7 +231,7 @@ minCorner.Parent = minimizeBtn
 
 local contentContainer = Instance.new("Frame")
 contentContainer.Name = "ContentContainer"
-contentContainer.Size = UDim2.new(1, 0, 0, 385)
+contentContainer.Size = UDim2.new(1, 0, 0, 445)
 contentContainer.Position = UDim2.new(0, 0, 0, 30)
 contentContainer.BackgroundTransparency = 1
 contentContainer.Parent = mainFrame
@@ -243,7 +245,7 @@ minimizeBtn.MouseButton1Click:Connect(function()
         contentContainer.Visible = false
         minimizeBtn.Text = "+"
     else
-        mainFrame.Size = UDim2.new(0, 210, 0, 420)
+        mainFrame.Size = UDim2.new(0, 210, 0, 480)
         contentContainer.Visible = true
         minimizeBtn.Text = "-"
     end
@@ -269,12 +271,15 @@ local function createToggleButton(name, pos, defaultText)
 end
 
 local farmBtn = createToggleButton("FarmBtn", UDim2.new(0.05, 0, 0.01, 0), "Auto Farm: OFF")
-local chestBtn = createToggleButton("ChestBtn", UDim2.new(0.05, 0, 0.13, 0), "Auto Chest: OFF")
-local dropBtn = createToggleButton("DropBtn", UDim2.new(0.05, 0, 0.25, 0), "Auto Drops: OFF")
-local healBtn = createToggleButton("HealBtn", UDim2.new(0.05, 0, 0.37, 0), "Auto Heal: OFF")
-local feedBtn = createToggleButton("FeedBtn", UDim2.new(0.05, 0, 0.49, 0), "Auto Feed: OFF")
-local exploreBtn = createToggleButton("ExploreBtn", UDim2.new(0.05, 0, 0.61, 0), "Auto Explore: OFF")
-local dungeonBtn = createToggleButton("DungeonLoopBtn", UDim2.new(0.05, 0, 0.73, 0), "Dungeon Loop: OFF")
+local chestBtn = createToggleButton("ChestBtn", UDim2.new(0.05, 0, 0.11, 0), "Auto Chest: OFF")
+local dropBtn = createToggleButton("DropBtn", UDim2.new(0.05, 0, 0.21, 0), "Auto Drops: OFF")
+local healPCBtn = createToggleButton("HealPCBtn", UDim2.new(0.05, 0, 0.31, 0), "Auto Heal PC: OFF")
+local healMobileBtn = createToggleButton("HealMobileBtn", UDim2.new(0.05, 0, 0.40, 0), "Auto Heal Mobile: OFF")
+-- Legacy variable alias retained for code compatibility; healing is controlled by the two buttons above.
+local healBtn = healPCBtn
+local feedBtn = createToggleButton("FeedBtn", UDim2.new(0.05, 0, 0.50, 0), "Auto Feed: OFF")
+local exploreBtn = createToggleButton("ExploreBtn", UDim2.new(0.05, 0, 0.60, 0), "Auto Explore: OFF")
+local dungeonBtn = createToggleButton("DungeonLoopBtn", UDim2.new(0.05, 0, 0.70, 0), "Dungeon Loop: OFF")
 
 -- ================================================
 -- DUNGEON SETTINGS
@@ -500,6 +505,8 @@ local function updateButton(btn, enabled, label)
         or Color3.fromRGB(220, 53, 69)
 end
 
+if healPCBtn then updateButton(healPCBtn, AUTO_HEAL_PC, "Auto Heal PC") end
+if healMobileBtn then updateButton(healMobileBtn, AUTO_HEAL_MOBILE, "Auto Heal Mobile") end
 if exploreBtn then updateButton(exploreBtn, AUTO_EXPLORE, "Auto Explore") end
 if dungeonBtn then updateButton(dungeonBtn, AUTO_DUNGEON_LOOP, "Dungeon Loop") end
 
@@ -523,8 +530,11 @@ local function enableAllAutoButtons()
     AUTO_DROPS = true
     updateButton(dropBtn, true, "Auto Drops")
 
+    AUTO_HEAL_PC = true
+    AUTO_HEAL_MOBILE = true
     AUTO_HEAL = true
-    updateButton(healBtn, true, "Auto Heal")
+    updateButton(healPCBtn, true, "Auto Heal PC")
+    updateButton(healMobileBtn, true, "Auto Heal Mobile")
 
     AUTO_FEED = true
     updateButton(feedBtn, true, "Auto Feed")
@@ -614,10 +624,19 @@ if dropBtn then
     end)
 end
 
-if healBtn then
-    healBtn.MouseButton1Click:Connect(function()
-        AUTO_HEAL = not AUTO_HEAL
-        updateButton(healBtn, AUTO_HEAL, "Auto Heal")
+if healPCBtn then
+    healPCBtn.MouseButton1Click:Connect(function()
+        AUTO_HEAL_PC = not AUTO_HEAL_PC
+        AUTO_HEAL = AUTO_HEAL_PC or AUTO_HEAL_MOBILE
+        updateButton(healPCBtn, AUTO_HEAL_PC, "Auto Heal PC")
+    end)
+end
+
+if healMobileBtn then
+    healMobileBtn.MouseButton1Click:Connect(function()
+        AUTO_HEAL_MOBILE = not AUTO_HEAL_MOBILE
+        AUTO_HEAL = AUTO_HEAL_PC or AUTO_HEAL_MOBILE
+        updateButton(healMobileBtn, AUTO_HEAL_MOBILE, "Auto Heal Mobile")
     end)
 end
 
@@ -1526,7 +1545,7 @@ end
 
 -- ใช้ยาผ่านปุ่ม QuickItem; บาง UI มือถือ QuickItem เป็น Frame
 -- และปุ่มกดจริงอยู่ข้างใน ไม่ใช่ตัว QuickItem เอง.
-local function triggerSlot4Potion()
+local function triggerSlot4Potion(mode)
     local pg = player:FindFirstChild("PlayerGui")
     local hud = pg and pg:FindFirstChild("HUD")
     local quickItem = hud and hud:FindFirstChild("QuickItem", true)
@@ -1583,11 +1602,11 @@ local function triggerSlot4Potion()
 
     -- Prefer the game's connected callback; use GUI click as fallback.
     if fireButton(button) then
-        print("[Auto Heal] Fired slot 4 button:", button:GetFullName())
+        print("[Auto Heal " .. tostring(mode or "PC") .. "] Fired slot 4 button:", button:GetFullName())
         return true, "ส่งคำสั่งช่องยา 4 แล้ว; กำลังตรวจ HP"
     end
     if clickHealGuiButton(button) then
-        print("[Auto Heal] Clicked slot 4 button:", button:GetFullName())
+        print("[Auto Heal " .. tostring(mode or "PC") .. "] Clicked slot 4 button:", button:GetFullName())
         return true, "คลิกช่องยา 4 แล้ว; กำลังตรวจ HP"
     end
 
@@ -1608,9 +1627,11 @@ local function confirmHealIncrease(previousHP, timeout)
 end
 
 -- วนทำงาน Auto Heal
+local lastHealMode = "Mobile"
 task.spawn(function()
     while screenGui and screenGui.Parent do
-        if AUTO_HEAL and not isHealing then
+        if (AUTO_HEAL_PC or AUTO_HEAL_MOBILE) and not isHealing then
+            local activeHealMode = "PC"
             local ok, err = pcall(function()
                 local curHP, maxHP = getDigimonHP()
                 if not curHP or not maxHP then return end
@@ -1619,9 +1640,19 @@ task.spawn(function()
                 if missingHP < HEAL_DROP_AMOUNT then return end
                 if tick() - lastHealTime < HEAL_COOLDOWN then return end
 
+                if AUTO_HEAL_PC and AUTO_HEAL_MOBILE then
+                    activeHealMode = (lastHealMode == "PC") and "Mobile" or "PC"
+                    lastHealMode = activeHealMode
+                elseif AUTO_HEAL_MOBILE then
+                    activeHealMode = "Mobile"
+                else
+                    activeHealMode = "PC"
+                end
+
                 isHealing = true
 
                 -- ใส่ยาก่อน หากยังไม่ได้ใส่
+                print("[Auto Heal " .. activeHealMode .. "] ตรวจ HP=" .. tostring(curHP) .. "/" .. tostring(maxHP) .. "; กำลังตรวจช่องยา 4")
                 local equipped = ensureHealPotionEquipped()
                 if not equipped then
                     isHealing = false
@@ -1636,7 +1667,7 @@ task.spawn(function()
                     return
                 end
 
-                local used, result = triggerSlot4Potion()
+                local used, result = triggerSlot4Potion(activeHealMode)
                 if used then
                     -- Cooldown begins after a command was actually sent.
                     lastHealTime = tick()
