@@ -1504,14 +1504,86 @@ local function clickMobileTarget(target)
     return false
 end
 
+-- PC: เปิดกระเป๋าจากปุ่มไอคอนบนหน้าจอ ถ้ารายการยา/ปุ่ม Equip ยังซ่อนอยู่
+-- จำกัดการจับคู่กับชื่อปุ่ม/ชื่อ parent ที่สื่อถึงกระเป๋า เพื่อไม่คลิกปุ่มอื่นแบบสุ่ม
+local function healGuiVisibleInTree(obj)
+    local node = obj
+    while node do
+        if node:IsA("GuiObject") and not node.Visible then return false end
+        node = node.Parent
+    end
+    return obj ~= nil
+end
+
+local function tryOpenPCInventory()
+    local pg = player:FindFirstChild("PlayerGui")
+    if not pg then return false end
+    local candidates = {}
+    for _, obj in ipairs(pg:GetDescendants()) do
+        if obj:IsA("ImageButton") or obj:IsA("TextButton") then
+            if obj.Active and healGuiVisibleInTree(obj) then
+                local parts = {obj.Name}
+                if obj:IsA("TextButton") then table.insert(parts, tostring(obj.Text or "")) end
+                local parent = obj.Parent
+                for _ = 1, 3 do
+                    if not parent or parent == pg then break end
+                    table.insert(parts, parent.Name)
+                    parent = parent.Parent
+                end
+                local marker = table.concat(parts, " "):lower()
+                if not marker:find("equip", 1, true)
+                    and not marker:find("remove", 1, true)
+                    and not marker:find("quickitem", 1, true)
+                    and not marker:find("potion", 1, true) then
+                    local score = 0
+                    if marker:find("inventory", 1, true) then score = score + 5 end
+                    if marker:find("backpack", 1, true) then score = score + 5 end
+                    if marker:find("bag", 1, true) then score = score + 4 end
+                    if marker:find("items", 1, true) then score = score + 3 end
+                    if marker:find("item", 1, true) then score = score + 1 end
+                    if score >= 3 then
+                        table.insert(candidates, {button = obj, score = score})
+                    end
+                end
+            end
+        end
+    end
+    table.sort(candidates, function(a, b) return a.score > b.score end)
+    if #candidates == 0 then
+        healDebug("หาไม่พบปุ่มกระเป๋า PC จากชื่อ UI; ไม่คลิกปุ่มอื่นแบบสุ่ม")
+        return false
+    end
+    if #candidates > 1 and candidates[1].score == candidates[2].score then
+        healDebug("พบปุ่มที่อาจเป็นกระเป๋าหลายปุ่มคะแนนเท่ากัน; ข้ามการคลิกเพื่อป้องกันกดผิด")
+        return false
+    end
+    local button = candidates[1].button
+    local clicked = fireButton(button)
+    if not clicked then clicked = clickHealGuiButton(button) end
+    print("[Auto Heal PC] เปิดกระเป๋าผ่านปุ่ม UI:", clicked, button:GetFullName())
+    if clicked then task.wait(0.45) end
+    return clicked
+end
+
 -- เลือกยาและ Equip เฉพาะเมื่อสถานะเป็น Equip
 local function ensureHealPotionEquipped(mode)
     if isEquipping then return false end
     if tick() - lastEquipAttempt < 2 then return false end
 
     local controls = getHealItemControls()
-    if not controls or not controls.item or not controls.equip or not controls.modeName then
-        healDebug("หาแผง Inventory/รายการ Single Healing Potion S/ปุ่ม Equip ไม่ครบ; เปิดหน้ากระเป๋าไว้แล้วลองอีกครั้ง")
+    local function controlsUsable(c)
+        return c and c.item and c.equip and c.modeName
+            and healGuiVisibleInTree(c.item)
+            and healGuiVisibleInTree(c.equip)
+    end
+    if tostring(mode) ~= "Mobile" and not controlsUsable(controls) then
+        -- The PC inventory is opened by the on-screen bag icon. Try that before
+        -- declaring failure, then rediscover the potion/equip controls.
+        tryOpenPCInventory()
+        controls = getHealItemControls()
+    end
+    if not controlsUsable(controls) then
+        healDebug("หาแผง Inventory/รายการ Single Healing Potion S/ปุ่ม Equip ไม่ครบหรือยังซ่อนอยู่; โหมด=" .. tostring(mode))
         return false
     end
 
