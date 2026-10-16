@@ -1620,19 +1620,23 @@ local function triggerSlot4Potion(mode, forceGui)
         return false, "ไม่พบ HUD.QuickItem (ช่องยา 4)"
     end
 
-    -- QuickItem อาจเป็นกรอบรวมของแถบไอเทม ไม่ใช่ปุ่มช่อง 4 เอง
-    -- ดังนั้นค้นหาปุ่มลูกก่อนเสมอ เพื่อไม่ให้แตะกลางกรอบรวมผิดตำแหน่ง
+    -- In the user's current UI, HUD.QuickItem itself is a TextButton.
+    -- Treat the object itself as the candidate only when it is a visible, active
+    -- GuiButton and it has no usable child buttons. Do not reject it just because
+    -- it has no GuiButton descendants.
     local buttons = {}
     for _, child in ipairs(quickItem:GetDescendants()) do
         if child:IsA("GuiButton") and child.Visible and child.Active then
             table.insert(buttons, child)
         end
     end
-    -- IMPORTANT: never tap the QuickItem container itself. It may cover nearby
-    -- controls (including Inventory) and is not proof that this is slot 4.
 
     if #buttons == 0 then
-        return false, "QuickItem ไม่มี GuiButton ที่มองเห็นและ Active; QuickItem=" .. quickItem.ClassName
+        if quickItem:IsA("GuiButton") and quickItem.Visible and quickItem.Active then
+            buttons[1] = quickItem
+        else
+            return false, "QuickItem ไม่มีปุ่มที่มองเห็นและ Active; QuickItem=" .. quickItem.ClassName
+        end
     end
 
     local function markerFor(obj)
@@ -1648,7 +1652,15 @@ local function triggerSlot4Potion(mode, forceGui)
     end
 
     local target = nil
+    -- The log from the current game explicitly reports HUD.QuickItem as a
+    -- TextButton with zero GuiButton children. In that exact case, use the
+    -- QuickItem TextButton itself instead of requiring a child named Slot4.
+    if #buttons == 1 and buttons[1] == quickItem and quickItem:IsA("TextButton") then
+        target = quickItem
+    end
+
     -- ชื่อปุ่ม/ข้อความที่ระบุช่อง 4 ชัดเจนมาก่อน
+    if not target then
     for _, b in ipairs(buttons) do
         local marker = markerFor(b)
         if marker:match("slot%s*4") or marker:match("item%s*4")
@@ -1657,6 +1669,7 @@ local function triggerSlot4Potion(mode, forceGui)
             target = b
             break
         end
+    end
     end
 
     -- ถ้า UI ไม่ตั้งชื่อช่องไว้ ให้เรียงปุ่มในแถบเดียวกันจากซ้ายไปขวา
@@ -1758,17 +1771,14 @@ task.spawn(function()
 
                 isHealing = true
 
-                -- PC UI: first ensure Single Healing Potion S is selected/equipped.
-                -- Mobile UI: the user has already confirmed the potion is in slot 4,
-                -- so skip Inventory selection and only trigger the slot.
-                local ready = true
-                if activeHealMode == "PC" then
-                    ready = ensureHealPotionEquipped(activeHealMode)
-                end
+                -- Keep PC behavior separate. Mobile now also checks/selects/equips
+                -- Single Healing Potion S instead of assuming the potion is already
+                -- equipped; this restores the mobile inventory/equip stage.
+                local ready = ensureHealPotionEquipped(activeHealMode)
 
                 if not ready then
                     lastHealTime = tick()
-                    warn("[Auto Heal PC] ยัง Equip ยาไม่สำเร็จ; เปิด Inventory ให้เห็น Single Healing Potion S และปุ่ม Equip แล้วลองใหม่")
+                    warn("[Auto Heal " .. activeHealMode .. "] ยัง Equip ยาไม่สำเร็จ; ตรวจว่าหน้ากระเป๋าแสดง Single Healing Potion S และปุ่ม Equip อยู่")
                 else
                     print("[Auto Heal " .. activeHealMode .. "] HP=" .. tostring(curHP) .. "/" .. tostring(maxHP) .. "; เริ่มใช้ยาช่อง 4")
                     local used, result = triggerSlot4Potion(activeHealMode)
