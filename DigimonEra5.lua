@@ -13,39 +13,6 @@ local CoreGui = game:GetService("CoreGui")
 
 local player = Players.LocalPlayer
 
--- ================================================
--- LOCK GAME HUD TO PC CONTROLLER
--- Keep the game's PC controls visible and mobile controls hidden.
--- Do not destroy either controller; the game may still reference both.
--- ================================================
-task.spawn(function()
-    local playerGui = player:WaitForChild("PlayerGui")
-    local hud = playerGui:WaitForChild("HUD")
-    local pcController = hud:WaitForChild("PC_Controller")
-    local mobileController = hud:WaitForChild("Mobile_Controller")
-
-    local enforcing = false
-    local function enforcePCMode()
-        if enforcing then return end
-        enforcing = true
-
-        if not pcController.Visible then
-            pcController.Visible = true
-        end
-        if mobileController.Visible then
-            mobileController.Visible = false
-        end
-
-        enforcing = false
-    end
-
-    enforcePCMode()
-    pcController:GetPropertyChangedSignal("Visible"):Connect(enforcePCMode)
-    mobileController:GetPropertyChangedSignal("Visible"):Connect(enforcePCMode)
-
-    print("[PC LOCK] PC_Controller forced visible; Mobile_Controller forced hidden")
-end)
-
 -- CONFIG
 local DIGIMON_SCRIPT_URL =
     "https://raw.githubusercontent.com/khampeegod36-alt/ksgod052/refs/heads/main/DigimonEra5.lua"
