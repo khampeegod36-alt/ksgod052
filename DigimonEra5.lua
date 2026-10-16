@@ -1731,32 +1731,29 @@ local function triggerSlot4Potion(mode, forceGui)
             end
 
             if mobileTarget then
-                -- MOBILE-ONLY CHANGE:
-                -- Prefer the connected UI callback first. The detected InventoryUI
-                -- connection is named useEquippedItem; sending a synthetic touch can
-                -- return success without the game's item-use callback actually running.
-                -- The existing PC branch below is deliberately unchanged.
+                -- MOBILE-ONLY FIX: normal attempt uses the same Touch action as a
+                -- manual tap. Only after HP confirmation fails does the caller retry
+                -- with forceGui, which invokes callback/Activate. PC path is unchanged.
+                if not forceGui then
+                    if clickHealMobileButton(mobileTarget) then
+                        print("[Auto Heal Mobile] แตะช่อง 4 โดยตรง:", mobileTarget:GetFullName())
+                        return true, "ส่ง Touch ช่อง 4 แล้ว; กำลังตรวจ HP"
+                    end
+                    warn("[Auto Heal Mobile] ส่ง Touch ช่อง 4 ไม่สำเร็จ:", mobileTarget:GetFullName())
+                    return false, "ส่ง Touch ช่อง 4 ไม่สำเร็จ"
+                end
+
                 if fireButton(mobileTarget) then
-                    print("[Auto Heal Mobile] เรียก callback ปุ่มช่อง 4 ก่อน Touch:", mobileTarget:GetFullName())
+                    print("[Auto Heal Mobile] Fallback เรียก callback ช่อง 4:", mobileTarget:GetFullName())
                     return true, "เรียก callback ช่อง 4 แล้ว; กำลังตรวจ HP"
                 end
-
-                if forceGui then
-                    local activated = pcall(function() mobileTarget:Activate() end)
-                    if activated then
-                        print("[Auto Heal Mobile] Fallback Activate ช่อง 4:", mobileTarget:GetFullName())
-                        return true, "Activate ช่อง 4 แล้ว; กำลังตรวจ HP"
-                    end
-                    warn("[Auto Heal Mobile] Fallback ช่อง 4 ไม่สำเร็จ:", mobileTarget:GetFullName())
-                    return false, "Fallback ช่อง 4 ไม่สำเร็จ"
+                local activated = pcall(function() mobileTarget:Activate() end)
+                if activated then
+                    print("[Auto Heal Mobile] Fallback Activate ช่อง 4:", mobileTarget:GetFullName())
+                    return true, "Activate ช่อง 4 แล้ว; กำลังตรวจ HP"
                 end
-
-                -- Touch is only attempted if firing the connected callback failed.
-                if clickHealMobileButton(mobileTarget) then
-                    print("[Auto Heal Mobile] ส่ง Touch ช่อง 4 ตาม UI Text=4:", mobileTarget:GetFullName())
-                    return true, "ส่ง Touch ช่อง 4 แล้ว; กำลังตรวจ HP"
-                end
-                warn("[Auto Heal Mobile] พบปุ่ม Text=4 แต่ callback และ Touch ไม่สำเร็จ:", mobileTarget:GetFullName())
+                warn("[Auto Heal Mobile] Fallback ช่อง 4 ไม่สำเร็จ:", mobileTarget:GetFullName())
+                return false, "Fallback ช่อง 4 ไม่สำเร็จ"
             end
         end
     end
@@ -1951,13 +1948,13 @@ task.spawn(function()
 
                 isHealing = true
 
-                -- MOBILE-ONLY CHANGE:
-                -- Mobile Auto Heal now also uses the existing Inventory search/select/Equip
-                -- flow, using the mobile Touch path inside ensureHealPotionEquipped().
-                -- Keep the PC branch and the mobile slot-4 use method unchanged.
+                -- MOBILE-ONLY FIX:
+                -- Potion is already assigned to slot 4. Do not reopen inventory or
+                -- run Equip detection before tapping it. Keep PC behavior unchanged.
                 local ready
                 if activeHealMode == "Mobile" then
-                    ready = ensureHealPotionEquipped("Mobile")
+                    ready = true
+                    print("[Auto Heal Mobile] ข้าม Inventory/Equip; แตะยาที่ช่อง 4 โดยตรง")
                 else
                     ready = ensureHealPotionEquipped(activeHealMode)
                 end
