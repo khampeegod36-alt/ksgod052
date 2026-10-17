@@ -28,7 +28,7 @@ local AUTO_CHEST = false
 local AUTO_DROPS = false
 local AUTO_HEAL = false -- legacy compatibility
 local AUTO_HEAL_PC = false
-local AUTO_HEAL_MOBILE = false
+local AUTO_HEAL_MOBILE = false -- disabled: this script is PC-only
 local AUTO_FEED = false
 local AUTO_FEED_BUSY = false
 local AUTO_FEED_WORKER_RUNNING = false
@@ -273,13 +273,14 @@ end
 local farmBtn = createToggleButton("FarmBtn", UDim2.new(0.05, 0, 0.01, 0), "Auto Farm: OFF")
 local chestBtn = createToggleButton("ChestBtn", UDim2.new(0.05, 0, 0.11, 0), "Auto Chest: OFF")
 local dropBtn = createToggleButton("DropBtn", UDim2.new(0.05, 0, 0.21, 0), "Auto Drops: OFF")
-local healPCBtn = createToggleButton("HealPCBtn", UDim2.new(0.05, 0, 0.31, 0), "Auto Heal PC: OFF")
-local healMobileBtn = createToggleButton("HealMobileBtn", UDim2.new(0.05, 0, 0.40, 0), "Auto Heal Mobile: OFF")
--- Legacy variable alias retained for code compatibility; healing is controlled by the two buttons above.
+local healPCBtn = createToggleButton("HealPCBtn", UDim2.new(0.05, 0, 0.31, 0), "Auto Heal: OFF")
+local potionSelectBtn = createToggleButton("PotionSelectBtn", UDim2.new(0.05, 0, 0.40, 0), "Potion to Equip: S")
+local potionEquipBtn = createToggleButton("PotionEquipBtn", UDim2.new(0.05, 0, 0.48, 0), "Equip Potion to Slot 4")
+-- PC-only script: no Mobile Auto Heal toggle.
 local healBtn = healPCBtn
-local feedBtn = createToggleButton("FeedBtn", UDim2.new(0.05, 0, 0.50, 0), "Auto Feed: OFF")
-local exploreBtn = createToggleButton("ExploreBtn", UDim2.new(0.05, 0, 0.60, 0), "Auto Explore: OFF")
-local dungeonBtn = createToggleButton("DungeonLoopBtn", UDim2.new(0.05, 0, 0.70, 0), "Dungeon Loop: OFF")
+local feedBtn = createToggleButton("FeedBtn", UDim2.new(0.05, 0, 0.56, 0), "Auto Feed: OFF")
+local exploreBtn = createToggleButton("ExploreBtn", UDim2.new(0.05, 0, 0.64, 0), "Auto Explore: OFF")
+local dungeonBtn = createToggleButton("DungeonLoopBtn", UDim2.new(0.05, 0, 0.72, 0), "Dungeon Loop: OFF")
 
 -- ================================================
 -- DUNGEON SETTINGS
@@ -505,8 +506,7 @@ local function updateButton(btn, enabled, label)
         or Color3.fromRGB(220, 53, 69)
 end
 
-if healPCBtn then updateButton(healPCBtn, AUTO_HEAL_PC, "Auto Heal PC") end
-if healMobileBtn then updateButton(healMobileBtn, AUTO_HEAL_MOBILE, "Auto Heal Mobile") end
+if healPCBtn then updateButton(healPCBtn, AUTO_HEAL_PC, "Auto Heal") end
 if exploreBtn then updateButton(exploreBtn, AUTO_EXPLORE, "Auto Explore") end
 if dungeonBtn then updateButton(dungeonBtn, AUTO_DUNGEON_LOOP, "Dungeon Loop") end
 
@@ -531,10 +531,9 @@ local function enableAllAutoButtons()
     updateButton(dropBtn, true, "Auto Drops")
 
     AUTO_HEAL_PC = true
-    AUTO_HEAL_MOBILE = true
+    AUTO_HEAL_MOBILE = false
     AUTO_HEAL = true
-    updateButton(healPCBtn, true, "Auto Heal PC")
-    updateButton(healMobileBtn, true, "Auto Heal Mobile")
+    updateButton(healPCBtn, true, "Auto Heal")
 
     AUTO_FEED = true
     updateButton(feedBtn, true, "Auto Feed")
@@ -627,18 +626,11 @@ end
 if healPCBtn then
     healPCBtn.MouseButton1Click:Connect(function()
         AUTO_HEAL_PC = not AUTO_HEAL_PC
-        AUTO_HEAL = AUTO_HEAL_PC or AUTO_HEAL_MOBILE
-        updateButton(healPCBtn, AUTO_HEAL_PC, "Auto Heal PC")
+        AUTO_HEAL = AUTO_HEAL_PC
+        updateButton(healPCBtn, AUTO_HEAL_PC, "Auto Heal")
     end)
 end
 
-if healMobileBtn then
-    healMobileBtn.MouseButton1Click:Connect(function()
-        AUTO_HEAL_MOBILE = not AUTO_HEAL_MOBILE
-        AUTO_HEAL = AUTO_HEAL_PC or AUTO_HEAL_MOBILE
-        updateButton(healMobileBtn, AUTO_HEAL_MOBILE, "Auto Heal Mobile")
-    end)
-end
 
 if feedBtn then
     feedBtn.MouseButton1Click:Connect(function()
@@ -1035,6 +1027,8 @@ local function closeMapForExplore()
     return not mapFrame.Visible
 end
 
+local hasPendingRoomLoot -- assigned after chest/drop helpers are defined
+
 local function findCurrentRoom(scrolling)
     for _, layer in ipairs(scrolling:GetChildren()) do
         local mapNumber = tonumber(layer.Name:match("^Map(%d+)$"))
@@ -1250,6 +1244,10 @@ task.spawn(function()
                     return
                 end
 
+                if hasPendingRoomLoot and hasPendingRoomLoot() then
+                    return
+                end
+
                 local nextRoom =
                     findNextRoom(currentLayer, currentRoom, scrolling)
 
@@ -1288,8 +1286,8 @@ end)
 
 
 -- ================================================
--- AUTO HEAL - SINGLE HEAL POTION S
--- Auto Equip + Slot 4 + PC/Mobile
+-- AUTO HEAL - SELECTABLE SINGLE HEALING POTION
+-- Separate potion selection/equip UI and PC slot-4 use
 -- ================================================
 
 local HEAL_COOLDOWN = 3
@@ -1308,8 +1306,20 @@ end
 
 -- Keep the original working UI object name first; some UI versions display
 -- "Single Healing Potion S" while the instance is still named "Single Heal Potion S".
-local HEAL_ITEM_NAME = "Single Heal Potion S"
-local HEAL_ITEM_NAME_FALLBACK = "Single Healing Potion S"
+local HEAL_POTION_TIERS = {"S", "M", "L"}
+local selectedHealPotionTier = "S"
+local function getSelectedHealPotionNames()
+    return {
+        "Single Heal Potion " .. selectedHealPotionTier,
+        "Single Healing Potion " .. selectedHealPotionTier,
+    }
+end
+local function refreshPotionSelectionButton()
+    if potionSelectBtn then
+        potionSelectBtn.Text = "Potion to Equip: " .. selectedHealPotionTier
+    end
+end
+local ensureHealPotionEquipped -- forward declaration for the separate Equip UI
 
 -- ค้นหา HP จาก TextLabel ที่แสดง current/max
 local function getDigimonHP()
@@ -1371,10 +1381,10 @@ local function getHealItemControls()
 
     local function isPotionName(value)
         local name = normalizeItemName(value)
-        return name == normalizeItemName(HEAL_ITEM_NAME)
-            or name == normalizeItemName(HEAL_ITEM_NAME_FALLBACK)
-            or name:find("single healing potion s", 1, true) ~= nil
-            or name:find("single heal potion s", 1, true) ~= nil
+        for _, potionName in ipairs(getSelectedHealPotionNames()) do
+            if name == normalizeItemName(potionName) then return true end
+        end
+        return false
     end
 
     local function findPotion(container)
@@ -1594,7 +1604,7 @@ local function openHealBagIfNeeded(mode, controls)
 end
 
 -- เลือกยาและ Equip เฉพาะเมื่อสถานะเป็น Equip
-local function ensureHealPotionEquipped(mode)
+ensureHealPotionEquipped = function(mode)
     if isEquipping then return false end
     if tick() - lastEquipAttempt < 2 then return false end
 
@@ -1992,11 +2002,38 @@ local function confirmHealIncrease(previousHP, timeout)
     return false, currentHP
 end
 
--- วนทำงาน Auto Heal
-local lastHealMode = "Mobile"
+-- UI แยกจากการกดใช้ยา: เลือกชนิดยา แล้วสั่ง Equip เข้าช่อง 4 ได้แม้ HP เต็ม
+refreshPotionSelectionButton()
+if potionSelectBtn then
+    potionSelectBtn.MouseButton1Click:Connect(function()
+        local index = table.find(HEAL_POTION_TIERS, selectedHealPotionTier) or 1
+        index = index % #HEAL_POTION_TIERS + 1
+        selectedHealPotionTier = HEAL_POTION_TIERS[index]
+        refreshPotionSelectionButton()
+        sendNotification("Potion Selection", "เลือกยา Single Healing Potion " .. selectedHealPotionTier)
+    end)
+end
+if potionEquipBtn then
+    potionEquipBtn.MouseButton1Click:Connect(function()
+        if isEquipping then return end
+        task.spawn(function()
+            local ok, equipped = pcall(function()
+                return ensureHealPotionEquipped and ensureHealPotionEquipped("PC")
+            end)
+            if ok and equipped then
+                sendNotification("Potion Equip", "ใส่ยา " .. selectedHealPotionTier .. " เข้าช่อง 4 แล้ว")
+            else
+                sendNotification("Potion Equip", "ยังใส่ยาไม่สำเร็จ กรุณาเปิดกระเป๋าและลองอีกครั้ง")
+            end
+        end)
+    end)
+end
+
+-- วนทำงาน Auto Heal (PC only)
+local lastHealMode = "PC"
 task.spawn(function()
     while screenGui and screenGui.Parent do
-        if (AUTO_HEAL_PC or AUTO_HEAL_MOBILE) and not isHealing then
+        if AUTO_HEAL_PC and not isHealing then
             local activeHealMode = "PC"
             local ok, err = pcall(function()
                 local curHP, maxHP = getDigimonHP()
@@ -2006,26 +2043,17 @@ task.spawn(function()
                 if missingHP < HEAL_DROP_AMOUNT then return end
                 if tick() - lastHealTime < HEAL_COOLDOWN then return end
 
-                if AUTO_HEAL_PC and AUTO_HEAL_MOBILE then
-                    activeHealMode = (lastHealMode == "PC") and "Mobile" or "PC"
-                    lastHealMode = activeHealMode
-                elseif AUTO_HEAL_MOBILE then
-                    activeHealMode = "Mobile"
-                else
-                    activeHealMode = "PC"
-                end
+                activeHealMode = "PC"
 
                 isHealing = true
 
-                -- Each mode keeps its own input method, but both modes may need to
-                -- equip Single Heal Potion S into slot 4. Mobile uses touch-first
-                -- selection/Equip; PC uses the visible inventory button click above.
-                -- Do not alter either Auto Heal toggle or any other system here.
+                -- PC-only Auto Heal. Potion selection/equip is also available from
+                -- its own UI button and does not wait for HP to drop.
                 local ready = ensureHealPotionEquipped(activeHealMode)
 
                 if not ready then
                     lastHealTime = tick()
-                    warn("[Auto Heal " .. activeHealMode .. "] ยัง Equip ยาไม่สำเร็จ; ตรวจว่าหน้ากระเป๋าแสดง Single Healing Potion S และปุ่ม Equip อยู่")
+                    warn("[Auto Heal " .. activeHealMode .. "] ยัง Equip ยาไม่สำเร็จ; ตรวจว่าหน้ากระเป๋าแสดง Single Healing Potion " .. selectedHealPotionTier .. " และปุ่ม Equip อยู่")
                 else
                     print("[Auto Heal " .. activeHealMode .. "] HP=" .. tostring(curHP) .. "/" .. tostring(maxHP) .. "; เริ่มใช้ยาช่อง 4")
                     local used, result = triggerSlot4Potion(activeHealMode)
@@ -2041,17 +2069,6 @@ task.spawn(function()
                                 healed, afterHP = confirmHealIncrease(curHP, 2)
                             else
                                 warn("[Auto Heal PC] GUI fallback: " .. tostring(guiResult))
-                            end
-                        elseif not healed and activeHealMode == "Mobile" then
-                            -- A touch API call can return successfully without the game
-                            -- consuming it. Only after HP confirmation fails, retry the
-                            -- exact slot-4 button through its GUI callback/Activate path.
-                            warn("[Auto Heal Mobile] แตะช่อง 4 แล้ว HP ไม่เพิ่ม; ลอง callback ของปุ่มช่อง 4")
-                            local guiSent, guiResult = triggerSlot4Potion(activeHealMode, true)
-                            if guiSent then
-                                healed, afterHP = confirmHealIncrease(curHP, 2)
-                            else
-                                warn("[Auto Heal Mobile] Callback fallback: " .. tostring(guiResult))
                             end
                         end
 
@@ -2107,6 +2124,23 @@ local function getChestWorldRoomName(obj)
     return nil
 end
 
+local function chestLooksOpened(chest)
+    if not chest or not chest.Parent then return true end
+    local partCount, transparentCount = 0, 0
+    for _, obj in ipairs(chest:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            partCount += 1
+            if obj.Transparency >= 0.85 then
+                transparentCount += 1
+            end
+        elseif obj:IsA("ProximityPrompt") and not obj.Enabled then
+            return true
+        end
+    end
+    -- User confirmed opened chests keep their model but become transparent.
+    return partCount > 0 and transparentCount >= math.max(1, math.ceil(partCount * 0.6))
+end
+
 local function findAndTeleportToChest(rootPart)
     if not AUTO_CHEST or not rootPart then
         return false
@@ -2127,28 +2161,27 @@ local function findAndTeleportToChest(rootPart)
     local now = tick()
 
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if (obj:IsA("Model") or obj:IsA("BasePart"))
-            and not openedChests[obj]
-            and (not chestRetryAt[obj] or now >= chestRetryAt[obj]) then
-
+        if (obj:IsA("Model") or obj:IsA("BasePart")) and not openedChests[obj] then
             local name = obj.Name:lower()
-            if name:find("chest") or name:find("rewardbox")
-                or name:find("treasure") then
-
-                local inCurrentRoom = true
-                if isDungeon then
-                    inCurrentRoom = getChestWorldRoomName(obj) == currentWorldRoomName
-                end
-
-                if inCurrentRoom then
-                    local ok, pos = pcall(function()
-                        return obj:GetPivot().Position
-                    end)
-                    if ok then
-                        local dist = (pos - rootPart.Position).Magnitude
-                        if dist < closestDist then
-                            closestChest = obj
-                            closestDist = dist
+            if name:find("chest") or name:find("rewardbox") or name:find("treasure") then
+                if chestLooksOpened(obj) then
+                    openedChests[obj] = true
+                    chestRetryAt[obj] = nil
+                elseif not chestRetryAt[obj] or now >= chestRetryAt[obj] then
+                    local inCurrentRoom = true
+                    if isDungeon then
+                        inCurrentRoom = getChestWorldRoomName(obj) == currentWorldRoomName
+                    end
+                    if inCurrentRoom then
+                        local ok, pos = pcall(function()
+                            return obj:GetPivot().Position
+                        end)
+                        if ok then
+                            local dist = (pos - rootPart.Position).Magnitude
+                            if dist < closestDist then
+                                closestChest = obj
+                                closestDist = dist
+                            end
                         end
                     end
                 end
@@ -2305,8 +2338,8 @@ local function findAndTeleportToDrop(rootPart)
 
     if not closestDrop or not AUTO_DROPS then return false end
 
-    collectedDrops[closestDrop] = true
-    sendNotification("Auto Drops", "วาร์ปไปเก็บ " .. closestDrop.Name)
+    local dropName = closestDrop.Name
+    sendNotification("Auto Drops", "วาร์ปไปเก็บ " .. dropName)
 
     local ok, pos = pcall(function()
         return closestDrop:GetPivot().Position
@@ -2357,8 +2390,70 @@ local function findAndTeleportToDrop(rootPart)
         end
     end
 
-    task.wait(0.2)
-    return true
+    task.wait(0.35)
+    -- Only mark as collected after the object actually disappears from the drop folder.
+    if not closestDrop.Parent then
+        collectedDrops[closestDrop] = true
+        return true
+    end
+
+    -- Keep it eligible for a later scan if touch/prompt did not collect it.
+    return false
+end
+
+-- Auto Explore must not switch rooms while current-room drops or unopened chests remain.
+hasPendingRoomLoot = function()
+    local character = player.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    if not rootPart then return false end
+
+    local isDungeon = game.PlaceId == EXPLORE_DUNGEON_PLACE_ID
+    local roomKey = isDungeon and getCurrentRoomKey() or nil
+    local currentWorldRoomName = roomKey and roomKey:match("([^/]+)$") or nil
+
+    if AUTO_DROPS then
+        local container = workspace:FindFirstChild("ClientDrops") or workspace:FindFirstChild("Drops")
+        if container then
+            for _, item in ipairs(container:GetChildren()) do
+                if (item:IsA("Model") or item:IsA("BasePart") or item:IsA("Tool"))
+                    and not collectedDrops[item] then
+                    local name = item.Name:lower()
+                    if not name:find("orb") and not name:find("chest") and not name:find("rewardbox") then
+                        local ok, pos = pcall(function() return item:GetPivot().Position end)
+                        if ok and (pos - rootPart.Position).Magnitude <= 100 then
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if AUTO_CHEST then
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if (obj:IsA("Model") or obj:IsA("BasePart")) and not openedChests[obj] then
+                local name = obj.Name:lower()
+                if name:find("chest") or name:find("rewardbox") or name:find("treasure") then
+                    if chestLooksOpened(obj) then
+                        openedChests[obj] = true
+                    else
+                        local inRoom = true
+                        if isDungeon then
+                            inRoom = currentWorldRoomName ~= nil
+                                and getChestWorldRoomName(obj) == currentWorldRoomName
+                        end
+                        if inRoom then
+                            local ok, pos = pcall(function() return obj:GetPivot().Position end)
+                            if ok and (pos - rootPart.Position).Magnitude <= 120 then
+                                return true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return false
 end
 
 -- ================================================
