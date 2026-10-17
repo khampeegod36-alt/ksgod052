@@ -1113,6 +1113,39 @@ local function hasReachableLivingEnemy(maxDistance)
     return false
 end
 
+-- Auto Explore: only move on when no living enemy remains in the current room.
+-- Unlike hasReachableLivingEnemy(), this does not ignore enemies just because
+-- Pathfinding cannot currently reach them (for example, a monster behind a wall).
+local function hasLivingEnemyInCurrentRoom(maxDistance)
+    local character = player.Character
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    local digimons = workspace:FindFirstChild("Digimons")
+    local enemies = digimons and digimons:FindFirstChild("Enemies")
+
+    if not root or not enemies then
+        -- Unknown state: do not claim the room is clear.
+        return true
+    end
+
+    for _, enemy in ipairs(enemies:GetChildren()) do
+        if enemy:IsA("Model") and enemy.Parent == enemies then
+            local enemyHumanoid = enemy:FindFirstChildOfClass("Humanoid")
+            local alive = not enemyHumanoid or enemyHumanoid.Health > 0
+
+            if alive then
+                local ok, enemyPos = pcall(function()
+                    return enemy:GetPivot().Position
+                end)
+                if ok and (enemyPos - root.Position).Magnitude <= maxDistance then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
+
 local function findNextRoom(currentLayer, currentRoom, scrolling)
     local function getAvailableRoom(layer, excludeRoom)
         local mapNumber = tonumber(layer.Name:match("^Map(%d+)$"))
@@ -1280,7 +1313,9 @@ task.spawn(function()
                     return
                 end
 
-                if hasReachableLivingEnemy(120) then
+                -- Wait for every living monster in the current room to be cleared.
+                -- This intentionally does not depend on pathfinding reachability.
+                if hasLivingEnemyInCurrentRoom(120) then
                     return
                 end
 
@@ -2217,27 +2252,19 @@ end
 
 local function chestLooksOpened(chest)
     if not chest or not chest.Parent then return true end
-
-    -- Opened ResourceChests remain in the world, but their visible parts
-    -- change to Transparency = 0.5. MainPart may already be Transparency = 1
-    -- while the chest is unopened, so require most parts to show the opened
-    -- transparency signal instead of trusting one part or Prompt.Enabled.
-    local partCount, openedTransparencyCount = 0, 0
-
+    local partCount, transparentCount = 0, 0
     for _, obj in ipairs(chest:GetDescendants()) do
         if obj:IsA("BasePart") then
             partCount += 1
-            if obj.Transparency >= 0.45 then
-                openedTransparencyCount += 1
+            if obj.Transparency >= 0.85 then
+                transparentCount += 1
             end
+        elseif obj:IsA("ProximityPrompt") and not obj.Enabled then
+            return true
         end
     end
-
-    -- A disabled ProximityPrompt alone is not proof that a chest was opened.
-    -- Count the chest as opened only when at least 60% of its parts are
-    -- transparent (including the observed 0.5 state).
-    return partCount > 0
-        and openedTransparencyCount >= math.max(1, math.ceil(partCount * 0.6))
+    -- User confirmed opened chests keep their model but become transparent.
+    return partCount > 0 and transparentCount >= math.max(1, math.ceil(partCount * 0.6))
 end
 
 local function findAndTeleportToChest(rootPart)
