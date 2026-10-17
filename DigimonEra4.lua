@@ -2104,41 +2104,34 @@ task.spawn(function()
 
                 isHealing = true
 
-                -- PC-only Auto Heal. Potion selection/equip is also available from
-                -- its own UI button and does not wait for HP to drop.
-                local ready = ensureHealPotionEquipped(activeHealMode)
-
-                if not ready then
+                -- Auto Equip is an independent system. Auto Heal must NOT reopen
+                -- inventory or search for Item/ItemEquip every time HP drops.
+                -- Use the already-equipped potion in slot 4 with the tested PC input.
+                print("[Auto Heal PC] HP=" .. tostring(curHP) .. "/" .. tostring(maxHP) .. "; ใช้ยาจากช่อง 4 โดยไม่ Equip ซ้ำ")
+                local used, result = triggerSlot4Potion(activeHealMode)
+                if used then
                     lastHealTime = tick()
-                    warn("[Auto Heal " .. activeHealMode .. "] ยัง Equip ยาไม่สำเร็จ; ตรวจว่าหน้ากระเป๋าแสดง Single Healing Potion " .. selectedHealPotionTier .. " และปุ่ม Equip อยู่")
-                else
-                    print("[Auto Heal " .. activeHealMode .. "] HP=" .. tostring(curHP) .. "/" .. tostring(maxHP) .. "; เริ่มใช้ยาช่อง 4")
-                    local used, result = triggerSlot4Potion(activeHealMode)
-                    if used then
-                        lastHealTime = tick()
-                        local healed, afterHP = confirmHealIncrease(curHP, 2)
+                    local healed, afterHP = confirmHealIncrease(curHP, 2)
 
-                        -- If PC hotkey 4 did not change HP, try the actual visible slot button.
-                        if not healed and activeHealMode == "PC" then
-                            warn("[Auto Heal PC] กดคีย์ 4 แล้ว HP ไม่เพิ่ม; ลองปุ่ม GUI ช่อง 4")
-                            local guiSent, guiResult = triggerSlot4Potion(activeHealMode, true)
-                            if guiSent then
-                                healed, afterHP = confirmHealIncrease(curHP, 2)
-                            else
-                                warn("[Auto Heal PC] GUI fallback: " .. tostring(guiResult))
-                            end
-                        end
-
-                        if healed then
-                            sendNotification("Auto Heal", "ยืนยันว่า HP เพิ่มเป็น " .. math.floor(afterHP))
+                    if not healed then
+                        warn("[Auto Heal PC] กดคีย์ 4 แล้ว HP ไม่เพิ่ม; ลองปุ่ม GUI ช่อง 4")
+                        local guiSent, guiResult = triggerSlot4Potion(activeHealMode, true)
+                        if guiSent then
+                            healed, afterHP = confirmHealIncrease(curHP, 2)
                         else
-                            sendNotification("Auto Heal", "ส่งคำสั่งแล้ว แต่ HP ยังไม่เพิ่ม; ตรวจช่อง 4 และจำนวนยา")
+                            warn("[Auto Heal PC] GUI fallback: " .. tostring(guiResult))
                         end
-                    else
-                        lastHealTime = tick()
-                        sendNotification("Auto Heal", result)
-                        warn("[Auto Heal " .. activeHealMode .. "] " .. tostring(result))
                     end
+
+                    if healed then
+                        sendNotification("Auto Heal", "ยืนยันว่า HP เพิ่มเป็น " .. math.floor(afterHP))
+                    else
+                        sendNotification("Auto Heal", "ส่งคำสั่งแล้ว แต่ HP ยังไม่เพิ่ม; ตรวจว่ายาอยู่ช่อง 4 และมีจำนวนเหลือ")
+                    end
+                else
+                    lastHealTime = tick()
+                    sendNotification("Auto Heal", result)
+                    warn("[Auto Heal PC] " .. tostring(result))
                 end
 
                 isHealing = false
@@ -2172,8 +2165,7 @@ local function getChestWorldRoomName(obj)
 
     local ancestor = obj.Parent
     while ancestor and ancestor ~= gameMap do
-        if ancestor.Name:match("^Layer_%d+_SmallMap_%d+$")
-            and ancestor.Parent == gameMap then
+        if ancestor.Name:match("^Layer_%d+_SmallMap_%d+$") then
             return ancestor.Name
         end
         ancestor = ancestor.Parent
@@ -2344,10 +2336,17 @@ local function findAndTeleportToChest(rootPart)
     end
 
     if not anyEnabledPrompt then
-        openedChests[chest] = true
-        chestRetryAt[chest] = nil
-        sendNotification("Auto Chest", "ตรวจพบว่าปุ่มเปิดหีบปิดใช้งานแล้ว")
-        return true
+        -- A disabled prompt alone is not proof the chest opened. The game keeps
+        -- opened chest models but makes their parts transparent; require that signal.
+        if chestLooksOpened(chest) then
+            openedChests[chest] = true
+            chestRetryAt[chest] = nil
+            sendNotification("Auto Chest", "ยืนยันว่าหีบเปิดแล้วจากความโปร่งแสง/สถานะ Prompt")
+            return true
+        end
+        chestRetryAt[chest] = tick() + math.min(CHEST_RETRY_COOLDOWN, 5)
+        warn("[Auto Chest] ไม่พบ Prompt ที่เปิดใช้งาน แต่หีบยังดูไม่เปิด จะตรวจซ้ำ")
+        return false
     end
 
     -- Skip this chest for a while if it didn't open, letting Auto Farm continue.
@@ -2500,8 +2499,11 @@ hasPendingRoomLoot = function()
                                 and getChestWorldRoomName(obj) == currentWorldRoomName
                         end
                         if inRoom then
-                            local ok, pos = pcall(function() return obj:GetPivot().Position end)
-                            if ok and (pos - rootPart.Position).Magnitude <= 120 then
+                            -- Any unopened chest assigned to the current room blocks
+                            -- room progression, even if it is across the room or outside
+                            -- the current pickup radius. Auto Chest must keep retrying it.
+                            local ok = pcall(function() return obj:GetPivot().Position end)
+                            if ok then
                                 return true
                             end
                         end
