@@ -2217,19 +2217,27 @@ end
 
 local function chestLooksOpened(chest)
     if not chest or not chest.Parent then return true end
-    local partCount, transparentCount = 0, 0
+
+    -- Opened ResourceChests remain in the world, but their visible parts
+    -- change to Transparency = 0.5. MainPart may already be Transparency = 1
+    -- while the chest is unopened, so require most parts to show the opened
+    -- transparency signal instead of trusting one part or Prompt.Enabled.
+    local partCount, openedTransparencyCount = 0, 0
+
     for _, obj in ipairs(chest:GetDescendants()) do
         if obj:IsA("BasePart") then
             partCount += 1
-            if obj.Transparency >= 0.85 then
-                transparentCount += 1
+            if obj.Transparency >= 0.45 then
+                openedTransparencyCount += 1
             end
-        elseif obj:IsA("ProximityPrompt") and not obj.Enabled then
-            return true
         end
     end
-    -- User confirmed opened chests keep their model but become transparent.
-    return partCount > 0 and transparentCount >= math.max(1, math.ceil(partCount * 0.6))
+
+    -- A disabled ProximityPrompt alone is not proof that a chest was opened.
+    -- Count the chest as opened only when at least 60% of its parts are
+    -- transparent (including the observed 0.5 state).
+    return partCount > 0
+        and openedTransparencyCount >= math.max(1, math.ceil(partCount * 0.6))
 end
 
 local function findAndTeleportToChest(rootPart)
