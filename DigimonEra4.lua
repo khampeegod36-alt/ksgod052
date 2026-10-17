@@ -1878,19 +1878,11 @@ local function triggerSlot4Potion(mode, forceGui)
     end
 
     local pg = player:FindFirstChild("PlayerGui")
+    local pcKeyFallback = false
     if tostring(mode) ~= "Mobile" then
-        if not forceGui then
-            local keySent = pcall(function()
-                VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Four, false, game)
-                task.wait(0.08)
-                VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Four, false, game)
-            end)
-            if keySent then
-                print("[Auto Heal PC] ส่งปุ่มคีย์บอร์ด 4 แล้ว; จะตรวจ HP และลองปุ่ม QuickItem หากไม่เพิ่ม")
-                return true, "ส่งปุ่มคีย์บอร์ด 4 แล้ว; กำลังตรวจ HP"
-            end
-        end
-
+        -- Prefer the actual slot-4 GUI callback first. A successful pcall on
+        -- SendKeyEvent only means the API call did not throw; it does not prove
+        -- Roblox accepted the key or consumed the potion.
         if pg then
             for _, obj in ipairs(pg:GetDescendants()) do
                 if obj:IsA("TextButton") or obj:IsA("ImageButton") then
@@ -2027,7 +2019,21 @@ local function triggerSlot4Potion(mode, forceGui)
             return true, "คลิกช่อง 4 แล้ว; กำลังตรวจ HP"
         end
     end
-    return false, "กดปุ่มช่อง 4 ไม่สำเร็จ: " .. target:GetFullName()
+    -- If the visible GUI callback/click paths above were unavailable, try the
+    -- physical PC key as the final fallback. Do not report success just because
+    -- SendKeyEvent did not throw; the caller still verifies HP afterward.
+    if tostring(mode) ~= "Mobile" and not forceGui then
+        local keyDown = pcall(function()
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Four, false, game)
+            task.wait(0.08)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Four, false, game)
+        end)
+        if keyDown then
+            print("[Auto Heal PC] ส่งปุ่ม 4 เป็น fallback หลังลอง UI แล้ว")
+            return true, "ส่งปุ่ม 4 เป็น fallback แล้ว; กำลังตรวจ HP"
+        end
+    end
+    return false, "กดปุ่มช่อง 4 ไม่สำเร็จ: " .. tostring(target and target:GetFullName() or "ไม่พบปุ่มช่อง 4")
 end
 
 local function confirmHealIncrease(previousHP, timeout)
