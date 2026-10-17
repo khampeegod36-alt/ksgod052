@@ -2113,13 +2113,16 @@ task.spawn(function()
                 -- inventory or search for Item/ItemEquip every time HP drops.
                 -- Use the already-equipped potion in slot 4 with the tested PC input.
                 print("[Auto Heal PC] HP=" .. tostring(curHP) .. "/" .. tostring(maxHP) .. "; ใช้ยาจากช่อง 4 โดยไม่ Equip ซ้ำ")
+                -- Use the requested PC method: keyboard 4 first, then GUI fallback
+                -- only if HP did not increase. Keep the existing slot-4 targeting,
+                -- potion selection/equip system, and HP verification intact.
                 local used, result = triggerSlot4Potion(activeHealMode)
                 if used then
                     lastHealTime = tick()
                     local healed, afterHP = confirmHealIncrease(curHP, 2)
 
                     if not healed then
-                        warn("[Auto Heal PC] กดคีย์ 4 แล้ว HP ไม่เพิ่ม; ลองปุ่ม GUI ช่อง 4")
+                        warn("[Auto Heal PC] คีย์ 4 ไม่ทำให้ HP เพิ่ม; ลอง UI ช่อง 4")
                         local guiSent, guiResult = triggerSlot4Potion(activeHealMode, true)
                         if guiSent then
                             healed, afterHP = confirmHealIncrease(curHP, 2)
