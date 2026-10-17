@@ -29,6 +29,7 @@ local AUTO_DROPS = false
 local AUTO_HEAL = false -- legacy compatibility
 local AUTO_HEAL_PC = false
 local AUTO_HEAL_MOBILE = false -- disabled: this script is PC-only
+local AUTO_EQUIP_POTION = false -- independent from Auto Heal; equips selected potion to slot 4
 local AUTO_FEED = false
 local AUTO_FEED_BUSY = false
 local AUTO_FEED_WORKER_RUNNING = false
@@ -275,7 +276,7 @@ local chestBtn = createToggleButton("ChestBtn", UDim2.new(0.05, 0, 0.11, 0), "Au
 local dropBtn = createToggleButton("DropBtn", UDim2.new(0.05, 0, 0.21, 0), "Auto Drops: OFF")
 local healPCBtn = createToggleButton("HealPCBtn", UDim2.new(0.05, 0, 0.31, 0), "Auto Heal: OFF")
 local potionSelectBtn = createToggleButton("PotionSelectBtn", UDim2.new(0.05, 0, 0.40, 0), "Potion to Equip: S")
-local potionEquipBtn = createToggleButton("PotionEquipBtn", UDim2.new(0.05, 0, 0.48, 0), "Equip Potion to Slot 4")
+local potionEquipBtn = createToggleButton("PotionEquipBtn", UDim2.new(0.05, 0, 0.48, 0), "Auto Equip Potion: OFF")
 -- PC-only script: no Mobile Auto Heal toggle.
 local healBtn = healPCBtn
 local feedBtn = createToggleButton("FeedBtn", UDim2.new(0.05, 0, 0.56, 0), "Auto Feed: OFF")
@@ -507,6 +508,7 @@ local function updateButton(btn, enabled, label)
 end
 
 if healPCBtn then updateButton(healPCBtn, AUTO_HEAL_PC, "Auto Heal") end
+if potionEquipBtn then updateButton(potionEquipBtn, AUTO_EQUIP_POTION, "Auto Equip Potion") end
 if exploreBtn then updateButton(exploreBtn, AUTO_EXPLORE, "Auto Explore") end
 if dungeonBtn then updateButton(dungeonBtn, AUTO_DUNGEON_LOOP, "Dungeon Loop") end
 
@@ -534,6 +536,9 @@ local function enableAllAutoButtons()
     AUTO_HEAL_MOBILE = false
     AUTO_HEAL = true
     updateButton(healPCBtn, true, "Auto Heal")
+
+    AUTO_EQUIP_POTION = true
+    updateButton(potionEquipBtn, true, "Auto Equip Potion")
 
     AUTO_FEED = true
     updateButton(feedBtn, true, "Auto Feed")
@@ -1191,6 +1196,9 @@ local function findNextRoom(currentLayer, currentRoom, scrolling)
 end
 
 task.spawn(function()
+    local stuckLastPosition = nil
+    local stuckSince = tick()
+    local lastSameRoomReselect = 0
     while screenGui.Parent do
         if game.PlaceId ~= lastExplorePlaceId then
             lastExplorePlaceId = game.PlaceId
@@ -1228,6 +1236,38 @@ task.spawn(function()
 
                 local currentRoom, currentLayer, percent =
                     findCurrentRoom(scrolling)
+
+                -- Recovery for getting wedged against a wall: if the character
+                -- barely moves for 18 seconds in an unfinished room, reselect
+                -- that same room button once (cooldown 30s). This asks the game
+                -- to reposition at the room spawn instead of blindly teleporting.
+                local character = player.Character
+                local root = character and character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    if stuckLastPosition and (root.Position - stuckLastPosition).Magnitude >= 3 then
+                        stuckSince = tick()
+                    elseif not stuckLastPosition then
+                        stuckSince = tick()
+                    end
+                    stuckLastPosition = root.Position
+
+                    local stuckLongEnough = tick() - stuckSince >= 18
+                    local roomIncomplete = currentRoom and percent and percent < 100
+                    local noNearbyEnemy = not hasReachableLivingEnemy(120)
+                    local noPendingLoot = not (hasPendingRoomLoot and hasPendingRoomLoot())
+                    if stuckLongEnough and roomIncomplete and noNearbyEnemy and noPendingLoot
+                        and tick() - lastSameRoomReselect >= 30 then
+                        lastSameRoomReselect = tick()
+                        warn("[Auto Explore] ตรวจพบว่าอาจติดกำแพง — ลองเลือกห้องเดิมเพื่อกลับจุดเกิด")
+                        if fireButton(currentRoom) then
+                            task.wait(2)
+                            closeMapForExplore()
+                            stuckSince = tick()
+                            stuckLastPosition = nil
+                            return
+                        end
+                    end
+                end
 
                 if not currentRoom or not percent or percent < 100 then
                     return
@@ -1846,7 +1886,7 @@ local function triggerSlot4Potion(mode, forceGui)
                 VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Four, false, game)
             end)
             if keySent then
-                print("[Auto Heal PC] ส่งปุ่มคีย์บอร์ด 4 ตามวิธี digimonEra3")
+                print("[Auto Heal PC] ส่งปุ่มคีย์บอร์ด 4 แล้ว; จะตรวจ HP และลองปุ่ม QuickItem หากไม่เพิ่ม")
                 return true, "ส่งปุ่มคีย์บอร์ด 4 แล้ว; กำลังตรวจ HP"
             end
         end
@@ -1866,9 +1906,10 @@ local function triggerSlot4Potion(mode, forceGui)
                 end
             end
         end
-        if forceGui then
-            return false, "ไม่พบปุ่ม TextButton/ImageButton ที่ Text == 4 ใน PlayerGui (วิธี digimonEra3)"
-        end
+        -- หากไม่พบปุ่มที่มี Text == "4" อย่าเพิ่งจบการทำงาน:
+        -- บาง UI ใช้ HUD.QuickItem เป็นปุ่มช่อง 4 โดยตรง หรือมีข้อความ 4 อยู่ในลูก
+        -- ให้ไหลต่อไปตรวจ HUD.QuickItem ด้านล่าง โดยเฉพาะตอน forceGui fallback
+        -- เพื่อไม่ให้ Auto Heal หยุดก่อนลองกดปุ่มช่อง 4 จริง
     end
     local hud = pg and pg:FindFirstChild("HUD")
     local quickItem = hud and hud:FindFirstChild("QuickItem", true)
@@ -2014,20 +2055,36 @@ if potionSelectBtn then
     end)
 end
 if potionEquipBtn then
+    updateButton(potionEquipBtn, AUTO_EQUIP_POTION, "Auto Equip Potion")
     potionEquipBtn.MouseButton1Click:Connect(function()
-        if isEquipping then return end
-        task.spawn(function()
+        AUTO_EQUIP_POTION = not AUTO_EQUIP_POTION
+        updateButton(potionEquipBtn, AUTO_EQUIP_POTION, "Auto Equip Potion")
+        sendNotification("Auto Equip Potion", AUTO_EQUIP_POTION
+            and ("เปิดแล้ว: จะพยายามใส่ยา " .. selectedHealPotionTier .. " เข้าช่อง 4 อัตโนมัติ")
+            or "ปิดแล้ว")
+    end)
+end
+
+-- Auto Equip is independent of Auto Heal/HP. It only runs inside the dungeon,
+-- retries on a cooldown, and never presses slot 4 to consume the potion.
+task.spawn(function()
+    local lastAutoEquipTry = 0
+    while screenGui and screenGui.Parent do
+        if AUTO_EQUIP_POTION and game.PlaceId == DUNGEON_PLACE_ID
+            and not isEquipping and tick() - lastAutoEquipTry >= 5 then
+            lastAutoEquipTry = tick()
             local ok, equipped = pcall(function()
                 return ensureHealPotionEquipped and ensureHealPotionEquipped("PC")
             end)
             if ok and equipped then
-                sendNotification("Potion Equip", "ใส่ยา " .. selectedHealPotionTier .. " เข้าช่อง 4 แล้ว")
-            else
-                sendNotification("Potion Equip", "ยังใส่ยาไม่สำเร็จ กรุณาเปิดกระเป๋าและลองอีกครั้ง")
+                -- Quiet success: don't spam notifications every retry.
+            elseif not ok then
+                warn("[Auto Equip Potion]", equipped)
             end
-        end)
-    end)
-end
+        end
+        task.wait(1)
+    end
+end)
 
 -- วนทำงาน Auto Heal (PC only)
 local lastHealMode = "PC"
