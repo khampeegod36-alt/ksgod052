@@ -2264,114 +2264,228 @@ task.spawn(function()
         task.wait(0.2)
     end
 end)
+
 -- ================================================
 -- AUTO CHEST
 -- ================================================
 
 local chestRetryAt = {}
 local CHEST_RETRY_COOLDOWN = 15
-local CHEST_ENEMY_CHECK_DISTANCE = 60
 local CHEST_STANDOFF_DISTANCE = 5
+local CHEST_OPEN_ROUNDS = 2
+local CHEST_PROMPT_ATTEMPTS = 3
 
--- In the dungeon, only allow Auto Chest to target objects belonging to
--- the physical room currently shown by Auto Explore. This prevents a chest
--- left in an earlier room from pulling the player backwards.
+-- ตรวจว่าชื่อวัตถุสื่อว่าเป็นหีบหรือไม่
+local function isChestName(name)
+    name = tostring(name or ""):lower()
+
+    return name:find("chest") ~= nil
+        or name:find("rewardbox") ~= nil
+        or name:find("treasure") ~= nil
+end
+
+-- หา Layer ของหีบจากโครงสร้าง GameMap
 local function getChestWorldRoomName(obj)
     local gameMap = workspace:FindFirstChild("GameMap")
-    if not gameMap or not obj then return nil end
+    if not gameMap or not obj then
+        return nil
+    end
 
     local ancestor = obj.Parent
+
     while ancestor and ancestor ~= gameMap do
         if ancestor.Name:match("^Layer_%d+_SmallMap_%d+$") then
             return ancestor.Name
         end
+
         ancestor = ancestor.Parent
     end
+
     return nil
 end
 
+-- ป้องกันการเลือกชิ้นส่วนย่อยของหีบซ้ำ
+local function hasChestAncestor(obj)
+    local ancestor = obj and obj.Parent
+
+    while ancestor and ancestor ~= workspace do
+        if ancestor:IsA("Model") and isChestName(ancestor.Name) then
+            return true
+        end
+
+        ancestor = ancestor.Parent
+    end
+
+    return false
+end
+
+-- ตรวจสถานะเปิดแล้วโดยใช้หลายสัญญาณร่วมกัน
+-- ต้องมี Prompt อยู่, Prompt ถูกปิดทั้งหมด และชิ้นส่วนส่วนใหญ่โปร่งใส
+-- การที่วัตถุหายไปจะถูกตรวจแยกในฟังก์ชันเปิดหีบ
 local function chestLooksOpened(chest)
-    if not chest or not chest.Parent then return true end
-    local partCount, transparentCount = 0, 0
+    if not chest or not chest.Parent then
+        return true
+    end
+
+    local partCount = 0
+    local transparentCount = 0
+    local promptCount = 0
+    local enabledPromptCount = 0
+
     for _, obj in ipairs(chest:GetDescendants()) do
         if obj:IsA("BasePart") then
             partCount += 1
-            if obj.Transparency >= 0.85 then
+
+            if obj.Transparency >= 0.45 then
                 transparentCount += 1
             end
-        elseif obj:IsA("ProximityPrompt") and not obj.Enabled then
-            return true
+
+        elseif obj:IsA("ProximityPrompt") then
+            promptCount += 1
+
+            if obj.Enabled then
+                enabledPromptCount += 1
+            end
         end
     end
-    -- User confirmed opened chests keep their model but become transparent.
-    return partCount > 0 and transparentCount >= math.max(1, math.ceil(partCount * 0.6))
+
+    return promptCount > 0
+        and enabledPromptCount == 0
+        and partCount > 0
+        and transparentCount >= math.max(
+            1,
+            math.ceil(partCount * 0.6)
+        )
 end
 
-local function findAndTeleportToChest(rootPart)
-    if not AUTO_CHEST or not rootPart then
+-- ตรวจว่าห้องเดิมยังเป็นห้องปัจจุบันอยู่หรือไม่
+local function chestRoomStillLocked(
+    isDungeon,
+    lockedRoomKey,
+    lockedWorldRoomName
+)
+    if not isDungeon then
+        return true
+    end
+
+    local currentKey = getCurrentRoomKey()
+
+    if not currentKey or currentKey ~= lockedRoomKey then
         return false
     end
 
-    local isDungeon = game.PlaceId == EXPLORE_DUNGEON_PLACE_ID
-    local currentRoomKey = isDungeon and getCurrentRoomKey() or nil
-    local currentWorldRoomName = currentRoomKey
-        and currentRoomKey:match("([^/]+)$") or nil
+    local currentWorldRoomName =
+        currentKey:match("([^/]+)$")
 
-    -- If we cannot identify the current room in the dungeon, fail closed:
-    -- do not use a workspace-wide chest search that could revisit old rooms.
-    if isDungeon and not currentWorldRoomName then
-        return false
-    end
+    return currentWorldRoomName == lockedWorldRoomName
+end
 
-    local closestChest, closestDist = nil, SEARCH_RADIUS
+-- ค้นหาหีบในห้องที่ล็อกไว้เท่านั้น
+local function collectCurrentRoomChests(
+    rootPart,
+    isDungeon,
+    lockedWorldRoomName
+)
+    local chests = {}
     local now = tick()
 
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if (obj:IsA("Model") or obj:IsA("BasePart")) and not openedChests[obj] then
-            local name = obj.Name:lower()
-            if name:find("chest") or name:find("rewardbox") or name:find("treasure") then
-                if chestLooksOpened(obj) then
-                    openedChests[obj] = true
-                    chestRetryAt[obj] = nil
-                elseif not chestRetryAt[obj] or now >= chestRetryAt[obj] then
-                    local inCurrentRoom = true
-                    if isDungeon then
-                        inCurrentRoom = getChestWorldRoomName(obj) == currentWorldRoomName
-                    end
-                    if inCurrentRoom then
-                        local ok, pos = pcall(function()
-                            return obj:GetPivot().Position
-                        end)
-                        if ok then
-                            local dist = (pos - rootPart.Position).Magnitude
-                            if dist < closestDist then
-                                closestChest = obj
-                                closestDist = dist
-                            end
-                        end
+        if (obj:IsA("Model") or obj:IsA("BasePart"))
+            and isChestName(obj.Name)
+            and not hasChestAncestor(obj)
+            and not openedChests[obj] then
+
+            if not obj.Parent then
+                openedChests[obj] = true
+                chestRetryAt[obj] = nil
+
+            elseif chestLooksOpened(obj) then
+                openedChests[obj] = true
+                chestRetryAt[obj] = nil
+
+            elseif not chestRetryAt[obj]
+                or now >= chestRetryAt[obj] then
+
+                local inCurrentRoom = true
+
+                if isDungeon then
+                    -- ถ้าระบุห้องของหีบไม่ได้ ให้ข้ามหีบนั้น
+                    -- ห้ามเดาจากระยะทางเพียงอย่างเดียว
+                    inCurrentRoom =
+                        getChestWorldRoomName(obj)
+                        == lockedWorldRoomName
+                end
+
+                if inCurrentRoom then
+                    local ok, pos = pcall(function()
+                        return obj:GetPivot().Position
+                    end)
+
+                    if ok then
+                        table.insert(chests, {
+                            object = obj,
+                            position = pos,
+                            distance = (
+                                pos - rootPart.Position
+                            ).Magnitude
+                        })
                     end
                 end
             end
         end
     end
 
-    if not closestChest or not AUTO_CHEST then
+    table.sort(chests, function(a, b)
+        return a.distance < b.distance
+    end)
+
+    return chests
+end
+
+-- พยายามเปิดหีบหนึ่งใบ
+local function tryOpenChest(
+    chest,
+    rootPart,
+    isDungeon,
+    lockedRoomKey,
+    lockedWorldRoomName
+)
+    if not AUTO_CHEST or not rootPart or not chest
+        or not chest.Parent then
         return false
     end
 
-    local chest = closestChest
+    -- ตรวจล็อกห้องก่อนเริ่ม
+    if not chestRoomStillLocked(
+        isDungeon,
+        lockedRoomKey,
+        lockedWorldRoomName
+    ) then
+        return false
+    end
+
+    if isDungeon
+        and getChestWorldRoomName(chest)
+            ~= lockedWorldRoomName then
+        return false
+    end
+
+    if chestLooksOpened(chest) then
+        openedChests[chest] = true
+        chestRetryAt[chest] = nil
+        return true
+    end
+
     local ok, chestPos = pcall(function()
         return chest:GetPivot().Position
     end)
+
     if not ok then
-        chestRetryAt[chest] = tick() + CHEST_RETRY_COOLDOWN
         return false
     end
 
-    -- Chest has priority when Auto Chest is enabled. Nearby enemies should not
-    -- cause this function to abandon the chest and leave movement to Auto Farm.
-
     local prompts = {}
+
     for _, obj in ipairs(chest:GetDescendants()) do
         if obj:IsA("ProximityPrompt") and obj.Enabled then
             table.insert(prompts, obj)
@@ -2379,80 +2493,225 @@ local function findAndTeleportToChest(rootPart)
     end
 
     if #prompts == 0 then
-        -- Avoid repeatedly selecting objects that only look like chests.
-        chestRetryAt[chest] = tick() + CHEST_RETRY_COOLDOWN
+        -- ไม่มี Prompt และยังยืนยันว่าเปิดแล้วไม่ได้:
+        -- อย่าเพิ่งจำว่าหีบเปิดแล้ว
         return false
     end
 
-    sendNotification("Auto Chest", "กำลังลองเปิดหีบ...")
-
-    -- Stand beside the chest, never inside its pivot. Preserve the current
-    -- approach direction so the character is less likely to get trapped.
+    -- ยืนข้างหีบ โดยไม่วาร์ปไปหีบของห้องอื่น
     local offset = rootPart.Position - chestPos
     local flatOffset = Vector3.new(offset.X, 0, offset.Z)
+
     if flatOffset.Magnitude < 0.1 then
         flatOffset = Vector3.new(1, 0, 0)
     else
         flatOffset = flatOffset.Unit
     end
-    local standPos = chestPos + flatOffset * CHEST_STANDOFF_DISTANCE
+
+    local standPos =
+        chestPos + flatOffset * CHEST_STANDOFF_DISTANCE
+
+    -- ตรวจห้องซ้ำทันที ก่อนเคลื่อนตัว
+    if not chestRoomStillLocked(
+        isDungeon,
+        lockedRoomKey,
+        lockedWorldRoomName
+    ) then
+        return false
+    end
+
+    if isDungeon
+        and getChestWorldRoomName(chest)
+            ~= lockedWorldRoomName then
+        return false
+    end
 
     pcall(function()
         rootPart.CFrame = CFrame.new(standPos, chestPos)
     end)
-    task.wait(0.15)
 
-    -- Make only a small number of attempts; don't keep teleporting onto the chest.
-    for i = 1, 3 do
+    task.wait(0.2)
+
+    for attempt = 1, CHEST_PROMPT_ATTEMPTS do
         if not AUTO_CHEST or not chest.Parent then
             break
         end
+
+        -- หากห้องเปลี่ยน ให้หยุดทันที
+        if not chestRoomStillLocked(
+            isDungeon,
+            lockedRoomKey,
+            lockedWorldRoomName
+        ) then
+            return false
+        end
+
+        if isDungeon
+            and getChestWorldRoomName(chest)
+                ~= lockedWorldRoomName then
+            return false
+        end
+
         for _, prompt in ipairs(prompts) do
-            if prompt.Parent and prompt.Enabled and type(fireproximityprompt) == "function" then
+            if prompt.Parent and prompt.Enabled
+                and type(fireproximityprompt) == "function" then
+
                 pcall(function()
                     prompt.RequiresLineOfSight = false
                     prompt.MaxActivationDistance = 20
                     prompt.HoldDuration = 0
+
                     fireproximityprompt(prompt)
                 end)
             end
         end
-        task.wait(0.15)
-    end
 
-    if not chest.Parent then
-        openedChests[chest] = true
-        chestRetryAt[chest] = nil
-        sendNotification("Auto Chest", "หีบถูกเก็บแล้ว")
-        return true
-    end
+        task.wait(0.2)
 
-    local anyEnabledPrompt = false
-    for _, obj in ipairs(chest:GetDescendants()) do
-        if obj:IsA("ProximityPrompt") and obj.Enabled then
-            anyEnabledPrompt = true
-            break
+        if not chest.Parent then
+            openedChests[chest] = true
+            chestRetryAt[chest] = nil
+
+            sendNotification(
+                "Auto Chest",
+                "หีบถูกเก็บแล้ว"
+            )
+
+            return true
         end
-    end
 
-    if not anyEnabledPrompt then
-        -- A disabled prompt alone is not proof the chest opened. The game keeps
-        -- opened chest models but makes their parts transparent; require that signal.
         if chestLooksOpened(chest) then
             openedChests[chest] = true
             chestRetryAt[chest] = nil
-            sendNotification("Auto Chest", "ยืนยันว่าหีบเปิดแล้วจากความโปร่งแสง/สถานะ Prompt")
+
+            sendNotification(
+                "Auto Chest",
+                "ยืนยันว่าหีบเปิดแล้ว"
+            )
+
             return true
         end
-        chestRetryAt[chest] = tick() + math.min(CHEST_RETRY_COOLDOWN, 5)
-        warn("[Auto Chest] ไม่พบ Prompt ที่เปิดใช้งาน แต่หีบยังดูไม่เปิด จะตรวจซ้ำ")
+    end
+
+    return false
+end
+
+-- ค้นหาและเปิดหีบในห้องปัจจุบัน
+-- ไล่ตรวจซ้ำ 2 รอบ และไม่ข้ามไปห้องข้างเคียง
+local function findAndTeleportToChest(rootPart)
+    if not AUTO_CHEST or not rootPart then
         return false
     end
 
-    -- Skip this chest for a while if it didn't open, letting Auto Farm continue.
-    chestRetryAt[chest] = tick() + CHEST_RETRY_COOLDOWN
+    local isDungeon =
+        game.PlaceId == EXPLORE_DUNGEON_PLACE_ID
+
+    local lockedRoomKey = nil
+    local lockedWorldRoomName = nil
+
+    if isDungeon then
+        lockedRoomKey = getCurrentRoomKey()
+
+        if not lockedRoomKey then
+            warn(
+                "[Auto Chest] ระบุห้องปัจจุบันไม่ได้ "
+                .. "จึงหยุดเพื่อป้องกันการเปิดผิดห้อง"
+            )
+
+            return false
+        end
+
+        lockedWorldRoomName =
+            lockedRoomKey:match("([^/]+)$")
+
+        if not lockedWorldRoomName then
+            return false
+        end
+    end
+
+    for round = 1, CHEST_OPEN_ROUNDS do
+        if not AUTO_CHEST or not rootPart.Parent then
+            return false
+        end
+
+        -- ห้ามใช้รายการหีบจากห้องเก่า
+        if not chestRoomStillLocked(
+            isDungeon,
+            lockedRoomKey,
+            lockedWorldRoomName
+        ) then
+            return false
+        end
+
+        local chests = collectCurrentRoomChests(
+            rootPart,
+            isDungeon,
+            lockedWorldRoomName
+        )
+
+        for _, entry in ipairs(chests) do
+            if not AUTO_CHEST then
+                return false
+            end
+
+            -- ยืนยันว่าห้องไม่เปลี่ยนก่อนเลือกหีบทุกใบ
+            if not chestRoomStillLocked(
+                isDungeon,
+                lockedRoomKey,
+                lockedWorldRoomName
+            ) then
+                return false
+            end
+
+            local chest = entry.object
+
+            if chest and chest.Parent
+                and not openedChests[chest] then
+
+                local success = tryOpenChest(
+                    chest,
+                    rootPart,
+                    isDungeon,
+                    lockedRoomKey,
+                    lockedWorldRoomName
+                )
+
+                if success then
+                    return true
+                end
+            end
+        end
+
+        -- เว้นช่วงก่อนเริ่มตรวจรอบที่สอง
+        if round < CHEST_OPEN_ROUNDS then
+            task.wait(0.25)
+        end
+    end
+
+    -- ผ่านครบสองรอบแล้ว จึงพักหีบที่เปิดไม่สำเร็จ
+    -- ไม่จำว่าหีบเหล่านี้เปิดแล้ว
+    local remainingChests = collectCurrentRoomChests(
+        rootPart,
+        isDungeon,
+        lockedWorldRoomName
+    )
+
+    for _, entry in ipairs(remainingChests) do
+        local chest = entry.object
+
+        if chest and chest.Parent
+            and not openedChests[chest] then
+            chestRetryAt[chest] =
+                tick() + CHEST_RETRY_COOLDOWN
+        end
+    end
+
     return false
 end
+
+-- ================================================
+-- END AUTO CHEST
+-- ================================================
 
 -- ================================================
 -- AUTO DROPS
