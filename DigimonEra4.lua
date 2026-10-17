@@ -1326,8 +1326,8 @@ end)
 
 
 -- ================================================
--- AUTO HEAL - SELECTABLE SINGLE HEALING POTION
--- Separate potion selection/equip UI and PC slot-4 use
+-- POTION SHARED HELPERS
+-- Selection state and helper functions used by Auto Equip Potion and Auto Heal
 -- ================================================
 
 local HEAL_COOLDOWN = 3
@@ -2048,7 +2048,11 @@ local function confirmHealIncrease(previousHP, timeout)
     return false, currentHP
 end
 
--- UI แยกจากการกดใช้ยา: เลือกชนิดยา แล้วสั่ง Equip เข้าช่อง 4 ได้แม้ HP เต็ม
+-- ================================================
+-- AUTO EQUIP POTION + POTION SELECTION
+-- เลือกยา S/M/L และ Equip เข้าช่อง 4 แยกจาก Auto Heal
+-- ระบบนี้ไม่กดใช้ยา และทำงานได้แม้ HP เต็ม
+-- ================================================
 refreshPotionSelectionButton()
 if potionSelectBtn then
     potionSelectBtn.MouseButton1Click:Connect(function()
@@ -2091,7 +2095,10 @@ task.spawn(function()
     end
 end)
 
--- วนทำงาน Auto Heal (PC only)
+-- ================================================
+-- AUTO HEAL (PC)
+-- ใช้ยาที่ใส่ช่อง 4 แล้วเท่านั้น; ไม่จัดการเลือก/Equip ยาเอง
+-- ================================================
 local lastHealMode = "PC"
 task.spawn(function()
     while screenGui and screenGui.Parent do
@@ -2113,16 +2120,13 @@ task.spawn(function()
                 -- inventory or search for Item/ItemEquip every time HP drops.
                 -- Use the already-equipped potion in slot 4 with the tested PC input.
                 print("[Auto Heal PC] HP=" .. tostring(curHP) .. "/" .. tostring(maxHP) .. "; ใช้ยาจากช่อง 4 โดยไม่ Equip ซ้ำ")
-                -- Use the requested PC method: keyboard 4 first, then GUI fallback
-                -- only if HP did not increase. Keep the existing slot-4 targeting,
-                -- potion selection/equip system, and HP verification intact.
                 local used, result = triggerSlot4Potion(activeHealMode)
                 if used then
                     lastHealTime = tick()
                     local healed, afterHP = confirmHealIncrease(curHP, 2)
 
                     if not healed then
-                        warn("[Auto Heal PC] คีย์ 4 ไม่ทำให้ HP เพิ่ม; ลอง UI ช่อง 4")
+                        warn("[Auto Heal PC] กดคีย์ 4 แล้ว HP ไม่เพิ่ม; ลองปุ่ม GUI ช่อง 4")
                         local guiSent, guiResult = triggerSlot4Potion(activeHealMode, true)
                         if guiSent then
                             healed, afterHP = confirmHealIncrease(curHP, 2)
