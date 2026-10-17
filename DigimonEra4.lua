@@ -1232,6 +1232,7 @@ task.spawn(function()
     local stuckLastPosition = nil
     local stuckSince = tick()
     local lastSameRoomReselect = 0
+    local pendingLootWaitStarted = nil
     while screenGui.Parent do
         if game.PlaceId ~= lastExplorePlaceId then
             lastExplorePlaceId = game.PlaceId
@@ -1319,28 +1320,65 @@ task.spawn(function()
                     return
                 end
 
+                -- Wait briefly for pending loot/chests, but do not block progression forever.
                 if hasPendingRoomLoot and hasPendingRoomLoot() then
-                    return
+                    if not pendingLootWaitStarted then
+                        pendingLootWaitStarted = tick()
+                        print("[Auto Explore] รอเก็บของ/หีบก่อนย้ายห้อง")
+                        return
+                    end
+                    if tick() - pendingLootWaitStarted < 8 then
+                        return
+                    end
+                    warn("[Auto Explore] รอของ/หีบครบ 8 วินาทีแล้ว จะลองย้ายห้องต่อ")
+                else
+                    pendingLootWaitStarted = nil
                 end
 
                 local nextRoom =
                     findNextRoom(currentLayer, currentRoom, scrolling)
 
                 if nextRoom then
+                    local oldRoomKey = currentLayer.Name .. "/" .. currentRoom.Name
                     sendNotification(
                         "Auto Explore",
                         "กำลังเข้าห้อง " .. nextRoom.Name
                     )
 
-                    if fireButton(nextRoom) then
-                        lastInvestigateTime = tick()
-                        print("[Auto Explore] เลือกห้องถัดไปแล้ว:", nextRoom.Name)
+                    local clicked = false
+                    for attempt = 1, 2 do
+                        if not nextRoom.Parent then break end
+                        clicked = fireButton(nextRoom)
+                        print("[Auto Explore] กดห้องถัดไป ครั้งที่", attempt,
+                            ":", nextRoom.Name, "signal=", clicked)
 
-                        task.wait(5)
-                        closeMapForExplore()
-
-                        lastInvestigateTime = tick()
+                        if clicked then
+                            local verifyStarted = tick()
+                            repeat
+                                task.wait(0.5)
+                                local checkFrame = getMapFrame()
+                                local checkScrolling = checkFrame
+                                    and checkFrame:FindFirstChild("ScrollingFrame")
+                                local checkRoom, checkLayer = checkScrolling
+                                    and findCurrentRoom(checkScrolling)
+                                local newKey = checkRoom and checkLayer
+                                    and (checkLayer.Name .. "/" .. checkRoom.Name) or nil
+                                if newKey and newKey ~= oldRoomKey then
+                                    print("[Auto Explore] ยืนยันว่าเปลี่ยนห้องแล้ว:", newKey)
+                                    pendingLootWaitStarted = nil
+                                    lastInvestigateTime = tick()
+                                    task.wait(1)
+                                    closeMapForExplore()
+                                    return
+                                end
+                            until tick() - verifyStarted >= 4
+                        end
+                        task.wait(0.5)
                     end
+
+                    warn("[Auto Explore] ส่งสัญญาณเลือกห้องแล้ว แต่ยังยืนยันการเปลี่ยนห้องไม่ได้:", nextRoom.Name)
+                    lastInvestigateTime = tick()
+                    -- Keep the map open so a later loop can retry.
                 else
                     print(
                         "[Auto Explore] ไม่พบห้องถัดไปใน Map1 ถึง Map3"
