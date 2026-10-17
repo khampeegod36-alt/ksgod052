@@ -523,6 +523,7 @@ local function enableAllAutoButtons()
     if autoAlreadyEnabled then return end
     autoAlreadyEnabled = true
 
+    -- Preserve the original behavior: Auto Farm turns on automatically in the dungeon.
     AUTO_FARM = true
     updateButton(farmBtn, true, "Auto Farm")
 
@@ -540,8 +541,9 @@ local function enableAllAutoButtons()
     AUTO_EQUIP_POTION = true
     updateButton(potionEquipBtn, true, "Auto Equip Potion")
 
-    AUTO_FEED = true
-    updateButton(feedBtn, true, "Auto Feed")
+    -- Auto Feed stays OFF by default; the user can enable it manually.
+    AUTO_FEED = false
+    updateButton(feedBtn, false, "Auto Feed")
 
     AUTO_EXPLORE = true
     updateButton(exploreBtn, true, "Auto Explore")
@@ -2366,25 +2368,8 @@ local function findAndTeleportToChest(rootPart)
         return false
     end
 
-    -- Do not try to open a chest while enemies are close to it.
-    local digimons = workspace:FindFirstChild("Digimons")
-    local enemies = digimons and digimons:FindFirstChild("Enemies")
-    if enemies then
-        for _, enemy in ipairs(enemies:GetChildren()) do
-            if enemy:IsA("Model") then
-                local enemyHumanoid = enemy:FindFirstChildOfClass("Humanoid")
-                if enemyHumanoid and enemyHumanoid.Health > 0 then
-                    local enemyOk, enemyPos = pcall(function()
-                        return enemy:GetPivot().Position
-                    end)
-                    if enemyOk and (enemyPos - chestPos).Magnitude <= CHEST_ENEMY_CHECK_DISTANCE then
-                        chestRetryAt[chest] = tick() + CHEST_RETRY_COOLDOWN
-                        return false
-                    end
-                end
-            end
-        end
-    end
+    -- Chest has priority when Auto Chest is enabled. Nearby enemies should not
+    -- cause this function to abandon the chest and leave movement to Auto Farm.
 
     local prompts = {}
     for _, obj in ipairs(chest:GetDescendants()) do
