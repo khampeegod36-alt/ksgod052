@@ -2096,69 +2096,99 @@ task.spawn(function()
 end)
 
 -- ================================================
--- AUTO HEAL (PC)
--- ใช้ยาที่ใส่ช่อง 4 แล้วเท่านั้น; ไม่จัดการเลือก/Equip ยาเอง
+-- AUTO HEAL
 -- ================================================
-local lastHealMode = "PC"
-task.spawn(function()
-    while screenGui and screenGui.Parent do
-        if AUTO_HEAL_PC and not isHealing then
-            local activeHealMode = "PC"
-            local ok, err = pcall(function()
-                local curHP, maxHP = getDigimonHP()
-                if not curHP or not maxHP then return end
 
-                local missingHP = maxHP - curHP
-                if missingHP < HEAL_DROP_AMOUNT then return end
-                if tick() - lastHealTime < HEAL_COOLDOWN then return end
+local function triggerHealKeyboard()
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(
+            true, Enum.KeyCode.Four, false, game
+        )
+        task.wait(0.08)
+        VirtualInputManager:SendKeyEvent(
+            false, Enum.KeyCode.Four, false, game
+        )
+    end)
+end
 
-                activeHealMode = "PC"
+local function triggerHealUI()
+    local pGui = player:FindFirstChild("PlayerGui")
+    if not pGui then return false end
 
-                isHealing = true
+    for _, obj in ipairs(pGui:GetDescendants()) do
+        if obj:IsA("TextButton") or obj:IsA("ImageButton") then
+            local text = ""
 
-                -- Auto Equip is an independent system. Auto Heal must NOT reopen
-                -- inventory or search for Item/ItemEquip every time HP drops.
-                -- Use the already-equipped potion in slot 4 with the tested PC input.
-                print("[Auto Heal PC] HP=" .. tostring(curHP) .. "/" .. tostring(maxHP) .. "; ใช้ยาจากช่อง 4 โดยไม่ Equip ซ้ำ")
-                local used, result = triggerSlot4Potion(activeHealMode)
-                if used then
-                    lastHealTime = tick()
-                    local healed, afterHP = confirmHealIncrease(curHP, 2)
-
-                    if not healed then
-                        warn("[Auto Heal PC] กดคีย์ 4 แล้ว HP ไม่เพิ่ม; ลองปุ่ม GUI ช่อง 4")
-                        local guiSent, guiResult = triggerSlot4Potion(activeHealMode, true)
-                        if guiSent then
-                            healed, afterHP = confirmHealIncrease(curHP, 2)
-                        else
-                            warn("[Auto Heal PC] GUI fallback: " .. tostring(guiResult))
-                        end
-                    end
-
-                    if healed then
-                        sendNotification("Auto Heal", "ยืนยันว่า HP เพิ่มเป็น " .. math.floor(afterHP))
-                    else
-                        sendNotification("Auto Heal", "ส่งคำสั่งแล้ว แต่ HP ยังไม่เพิ่ม; ตรวจว่ายาอยู่ช่อง 4 และมีจำนวนเหลือ")
-                    end
-                else
-                    lastHealTime = tick()
-                    sendNotification("Auto Heal", result)
-                    warn("[Auto Heal PC] " .. tostring(result))
-                end
-
-                isHealing = false
+            pcall(function()
+                text = tostring(obj.Text)
             end)
 
-            if not ok then
-                isHealing = false
-                warn("[Auto Heal] Error:", err)
+            if text == "4" then
+                local ok = pcall(function()
+                    obj:Activate()
+                end)
+
+                if ok then return true end
             end
         end
+    end
 
-        task.wait(HEAL_CHECK_INTERVAL)
+    return false
+end
+
+local function getDigimonHP()
+    local pGui = player:FindFirstChild("PlayerGui")
+    if not pGui then return nil, nil end
+
+    for _, gui in ipairs(pGui:GetDescendants()) do
+        if gui:IsA("TextLabel") and gui.Visible and gui.Text ~= "" then
+            local text = gui.Text:gsub(",", "")
+            local cur, max = text:match("(%d+)%s*/%s*(%d+)")
+
+            if cur and max then
+                local cVal, mVal = tonumber(cur), tonumber(max)
+
+                if cVal and mVal and mVal > 100 then
+                    return cVal, mVal
+                end
+            end
+        end
+    end
+
+    return nil, nil
+end
+
+task.spawn(function()
+    local lastHealTime = 0
+
+    while screenGui.Parent do
+        if AUTO_HEAL then
+            pcall(function()
+                local curHP, maxHP = getDigimonHP()
+
+                if curHP and maxHP then
+                    local missingHP = maxHP - curHP
+
+                    if missingHP >= HEAL_DROP_AMOUNT
+                        and tick() - lastHealTime >= 2 then
+
+                        triggerHealKeyboard()
+                        task.wait(0.15)
+                        triggerHealUI()
+                        lastHealTime = tick()
+
+                        sendNotification(
+                            "Auto Heal",
+                            "HP ลด " .. math.floor(missingHP)
+                        )
+                    end
+                end
+            end)
+        end
+
+        task.wait(0.2)
     end
 end)
-
 -- ================================================
 -- AUTO CHEST
 -- ================================================
