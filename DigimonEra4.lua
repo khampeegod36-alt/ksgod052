@@ -2328,12 +2328,15 @@ local function getPhysicalRoomName(rootPart)
 end
 
 local function isChestModel(obj)
-    if not obj or not obj:IsA("Model") then return false end
-    -- Live game objects observed in Workspace.GameMap use "Standard Treasure",
-    -- not "ResourceChest". Keep the old name as a compatibility fallback.
-    return obj.Name == "Standard Treasure" or obj.Name == "ResourceChest"
-end
+    if not obj or not obj:IsA("Model") then
+        return false
+    end
 
+    -- รองรับหีบธรรมดา หีบทอง และชื่อเดิมที่ใช้ในสคริปต์
+    return obj.Name == "Standard Treasure"
+        or obj.Name == "Royal Treasure"
+        or obj.Name == "ResourceChest"
+end
 local function chestLooksOpened(chest)
     if not chest or not chest.Parent then return true end
     local partCount, transparentCount = 0, 0
