@@ -2296,34 +2296,42 @@ local function getPhysicalRoomName(rootPart)
     local gameMap = workspace:FindFirstChild("GameMap")
     if not gameMap or not rootPart then return nil end
 
+    -- Do not use Model:GetBoundingBox() or one giant AABB for a room: dungeon
+    -- decorations can be scattered and make those bounds unreliable. Instead,
+    -- find the room containing the nearest actual BasePart to the player.
     local position = rootPart.Position
     local bestName, bestDistance = nil, math.huge
     for _, room in ipairs(gameMap:GetDescendants()) do
-        if room.Name:match("^Layer_%d+_SmallMap_%d+$") then
-            local minX, maxX, minZ, maxZ
+        if room:IsA("Model") and room.Name:match("^Layer_%d+_SmallMap_%d+$") then
+            local roomBest = math.huge
             for _, part in ipairs(room:GetDescendants()) do
                 if part:IsA("BasePart") then
-                    local pos, half = part.Position, part.Size * 0.5
-                    minX = minX and math.min(minX, pos.X - half.X) or (pos.X - half.X)
-                    maxX = maxX and math.max(maxX, pos.X + half.X) or (pos.X + half.X)
-                    minZ = minZ and math.min(minZ, pos.Z - half.Z) or (pos.Z - half.Z)
-                    maxZ = maxZ and math.max(maxZ, pos.Z + half.Z) or (pos.Z + half.Z)
+                    local dx = part.Position.X - position.X
+                    local dz = part.Position.Z - position.Z
+                    local distance = math.sqrt(dx * dx + dz * dz)
+                    if distance < roomBest then
+                        roomBest = distance
+                    end
                 end
             end
-            if minX then
-                local dx = math.max(minX - position.X, 0, position.X - maxX)
-                local dz = math.max(minZ - position.Z, 0, position.Z - maxZ)
-                local distance = math.sqrt(dx * dx + dz * dz)
-                -- Prefer a room whose physical bounds contain the player; otherwise
-                -- use the nearest room bounds, with a conservative 100-stud limit.
-                if distance < bestDistance then
-                    bestName, bestDistance = room.Name, distance
-                end
+            if roomBest < bestDistance then
+                bestName, bestDistance = room.Name, roomBest
             end
         end
     end
-    if bestDistance <= 100 then return bestName end
+
+    -- The player should be physically near some part of the active room.
+    if bestName and bestDistance <= 150 then
+        return bestName
+    end
     return nil
+end
+
+local function isChestModel(obj)
+    if not obj or not obj:IsA("Model") then return false end
+    -- Live game objects observed in Workspace.GameMap use "Standard Treasure",
+    -- not "ResourceChest". Keep the old name as a compatibility fallback.
+    return obj.Name == "Standard Treasure" or obj.Name == "ResourceChest"
 end
 
 local function chestLooksOpened(chest)
@@ -2352,24 +2360,24 @@ local function findAndTeleportToChest(rootPart)
     local isDungeon = game.PlaceId == EXPLORE_DUNGEON_PLACE_ID
     local currentWorldRoomName = isDungeon and getPhysicalRoomName(rootPart) or nil
 
-    -- If we cannot identify the current room in the dungeon, fail closed:
-    -- do not use a workspace-wide chest search that could revisit old rooms.
-    if isDungeon and not currentWorldRoomName then
-        return false
-    end
+    -- If room detection is temporarily unavailable, still allow only chests
+    -- whose world-room can be identified; never blindly target an old-room chest.
 
     local closestChest, closestDist = nil, SEARCH_RADIUS
     local now = tick()
 
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Model") and obj.Name == "ResourceChest" and not openedChests[obj] then
+        if isChestModel(obj) and not openedChests[obj] then
             if chestLooksOpened(obj) then
                 openedChests[obj] = true
                 chestRetryAt[obj] = nil
             elseif not chestRetryAt[obj] or now >= chestRetryAt[obj] then
                 local inCurrentRoom = true
                 if isDungeon then
-                    inCurrentRoom = getChestWorldRoomName(obj) == currentWorldRoomName
+                    local chestRoomName = getChestWorldRoomName(obj)
+                    inCurrentRoom = chestRoomName ~= nil
+                        and currentWorldRoomName ~= nil
+                        and chestRoomName == currentWorldRoomName
                 end
                 if inCurrentRoom then
                     local ok, pos = pcall(function()
@@ -2618,14 +2626,16 @@ hasPendingRoomLoot = function()
 
     if AUTO_CHEST then
         for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("Model") and obj.Name == "ResourceChest" and not openedChests[obj] then
+            if isChestModel(obj) and not openedChests[obj] then
                 if chestLooksOpened(obj) then
                     openedChests[obj] = true
                 else
                     local inRoom = true
                     if isDungeon then
+                        local chestRoomName = getChestWorldRoomName(obj)
                         inRoom = currentWorldRoomName ~= nil
-                            and getChestWorldRoomName(obj) == currentWorldRoomName
+                            and chestRoomName ~= nil
+                            and chestRoomName == currentWorldRoomName
                     end
                     if inRoom then
                         -- Keep Auto Explore in this physical room until its ResourceChest opens.
