@@ -79,20 +79,6 @@ local function setupTeleportQueue()
         local player = Players.LocalPlayer
         local UI_NAME = "DigimonEra4_MultiUI"
 
-        -- Restore locked dungeon choices before the remotely hosted script starts.
-        -- This also preserves settings when the queued script source is an older copy.
-        pcall(function()
-            local env = getgenv and getgenv() or _G
-            local HttpService = game:GetService("HttpService")
-            if type(readfile) == "function" and type(isfile) == "function"
-                and isfile("DigimonEra4_DungeonSettings.json") then
-                local saved = HttpService:JSONDecode(readfile("DigimonEra4_DungeonSettings.json"))
-                if type(saved) == "table" then
-                    env.DigimonEraDungeonSettings = saved
-                end
-            end
-        end)
-
         local function hasUI(parent)
             return parent ~= nil
                 and parent:FindFirstChild(UI_NAME) ~= nil
@@ -302,29 +288,8 @@ local dungeonBtn = createToggleButton("DungeonLoopBtn", UDim2.new(0.05, 0, 0.72,
 -- ================================================
 
 local env = getgenv and getgenv() or _G
-local HttpService = game:GetService("HttpService")
-local DUNGEON_SETTINGS_FILE = "DigimonEra4_DungeonSettings.json"
 
--- Load the saved settings first so a stale executor environment cannot overwrite
--- the user's latest Map/Level/Lock choices after a server hop.
-local function loadSavedDungeonSettings()
-    if type(readfile) ~= "function" or type(isfile) ~= "function" then
-        return nil
-    end
-
-    local ok, result = pcall(function()
-        if not isfile(DUNGEON_SETTINGS_FILE) then return nil end
-        return HttpService:JSONDecode(readfile(DUNGEON_SETTINGS_FILE))
-    end)
-
-    if ok and type(result) == "table" then
-        return result
-    end
-    return nil
-end
-
-local savedDungeonSettings = loadSavedDungeonSettings()
-local DungeonSettings = savedDungeonSettings or env.DigimonEraDungeonSettings or {
+local DungeonSettings = env.DigimonEraDungeonSettings or {
     Map = "Forest",
     Level = "61-100",
     LockMap = false,
@@ -332,21 +297,6 @@ local DungeonSettings = savedDungeonSettings or env.DigimonEraDungeonSettings or
 }
 
 env.DigimonEraDungeonSettings = DungeonSettings
-
-local function saveDungeonSettings()
-    -- Keep the executor environment copy and write a disk copy when supported.
-    env.DigimonEraDungeonSettings = DungeonSettings
-    if type(writefile) == "function" then
-        pcall(function()
-            writefile(DUNGEON_SETTINGS_FILE, HttpService:JSONEncode({
-                Map = DungeonSettings.Map,
-                Level = DungeonSettings.Level,
-                LockMap = DungeonSettings.LockMap == true,
-                LockLevel = DungeonSettings.LockLevel == true
-            }))
-        end)
-    end
-end
 
 local DungeonLevels = {
     Forest = {"1-10", "11-30", "31-60", "61-100", "101-150", "151-220"},
@@ -373,7 +323,6 @@ local function validateDungeonSettings()
 end
 
 validateDungeonSettings()
-saveDungeonSettings()
 
 local settingsBtn = Instance.new("TextButton")
 settingsBtn.Name = "DungeonSettingsBtn"
@@ -469,7 +418,6 @@ mapBtn.MouseButton1Click:Connect(function()
         end
     end
 
-    saveDungeonSettings()
     refreshDungeonSettingsUI()
 end)
 
@@ -484,19 +432,16 @@ levelBtn.MouseButton1Click:Connect(function()
     currentIndex = currentIndex % #levels + 1
     DungeonSettings.Level = levels[currentIndex]
 
-    saveDungeonSettings()
     refreshDungeonSettingsUI()
 end)
 
 lockMapBtn.MouseButton1Click:Connect(function()
     DungeonSettings.LockMap = not DungeonSettings.LockMap
-    saveDungeonSettings()
     refreshDungeonSettingsUI()
 end)
 
 lockLevelBtn.MouseButton1Click:Connect(function()
     DungeonSettings.LockLevel = not DungeonSettings.LockLevel
-    saveDungeonSettings()
     refreshDungeonSettingsUI()
 end)
 
@@ -2387,7 +2332,9 @@ local function chestLooksOpened(chest)
     for _, obj in ipairs(chest:GetDescendants()) do
         if obj:IsA("BasePart") then
             partCount += 1
-            if obj.Transparency >= 0.85 then
+            -- Opened ResourceChest parts have been observed at Transparency ~= 0.5.
+            -- Count those as transparent enough instead of requiring near-invisible parts.
+            if obj.Transparency >= 0.45 then
                 transparentCount += 1
             end
         end
