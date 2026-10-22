@@ -298,6 +298,48 @@ local DungeonSettings = env.DigimonEraDungeonSettings or {
 
 env.DigimonEraDungeonSettings = DungeonSettings
 
+-- Persist dungeon choices across server changes / script restarts when the
+-- executor supports file APIs. Keep the in-memory env table as a fallback.
+local DUNGEON_SETTINGS_FILE = "DigimonEra4_DungeonSettings.json"
+local HttpService = game:GetService("HttpService")
+local function loadSavedDungeonSettings()
+    if type(readfile) ~= "function" then return false end
+    local ok, raw = pcall(function()
+        if type(isfile) == "function" and not isfile(DUNGEON_SETTINGS_FILE) then
+            return nil
+        end
+        return readfile(DUNGEON_SETTINGS_FILE)
+    end)
+    if not ok or type(raw) ~= "string" or raw == "" then return false end
+    local decodedOk, saved = pcall(function() return HttpService:JSONDecode(raw) end)
+    if not decodedOk or type(saved) ~= "table" then return false end
+    if type(saved.Map) == "string" then DungeonSettings.Map = saved.Map end
+    if type(saved.Level) == "string" then DungeonSettings.Level = saved.Level end
+    if type(saved.LockMap) == "boolean" then DungeonSettings.LockMap = saved.LockMap end
+    if type(saved.LockLevel) == "boolean" then DungeonSettings.LockLevel = saved.LockLevel end
+    return true
+end
+
+local function saveDungeonSettings()
+    env.DigimonEraDungeonSettings = DungeonSettings
+    if type(writefile) ~= "function" then
+        warn("[Dungeon Settings] Executor ไม่มี writefile; ค่าจะอยู่ได้เฉพาะใน session นี้")
+        return false
+    end
+    local ok, err = pcall(function()
+        writefile(DUNGEON_SETTINGS_FILE, HttpService:JSONEncode({
+            Map = DungeonSettings.Map,
+            Level = DungeonSettings.Level,
+            LockMap = DungeonSettings.LockMap,
+            LockLevel = DungeonSettings.LockLevel
+        }))
+    end)
+    if not ok then warn("[Dungeon Settings] บันทึกค่าไม่สำเร็จ:", err) end
+    return ok
+end
+
+loadSavedDungeonSettings()
+
 local DungeonLevels = {
     Forest = {"1-10", "11-30", "31-60", "61-100", "101-150", "151-220"},
     Volcano = {"1-30", "31-60", "61-110", "111-170", "171-240"},
@@ -323,6 +365,7 @@ local function validateDungeonSettings()
 end
 
 validateDungeonSettings()
+saveDungeonSettings()
 
 local settingsBtn = Instance.new("TextButton")
 settingsBtn.Name = "DungeonSettingsBtn"
@@ -418,6 +461,7 @@ mapBtn.MouseButton1Click:Connect(function()
         end
     end
 
+    saveDungeonSettings()
     refreshDungeonSettingsUI()
 end)
 
@@ -432,16 +476,19 @@ levelBtn.MouseButton1Click:Connect(function()
     currentIndex = currentIndex % #levels + 1
     DungeonSettings.Level = levels[currentIndex]
 
+    saveDungeonSettings()
     refreshDungeonSettingsUI()
 end)
 
 lockMapBtn.MouseButton1Click:Connect(function()
     DungeonSettings.LockMap = not DungeonSettings.LockMap
+    saveDungeonSettings()
     refreshDungeonSettingsUI()
 end)
 
 lockLevelBtn.MouseButton1Click:Connect(function()
     DungeonSettings.LockLevel = not DungeonSettings.LockLevel
+    saveDungeonSettings()
     refreshDungeonSettingsUI()
 end)
 
@@ -2328,15 +2375,12 @@ local function getPhysicalRoomName(rootPart)
 end
 
 local function isChestModel(obj)
-    if not obj or not obj:IsA("Model") then
-        return false
-    end
-
-    -- รองรับหีบธรรมดา หีบทอง และชื่อเดิมที่ใช้ในสคริปต์
-    return obj.Name == "Standard Treasure"
-        or obj.Name == "Royal Treasure"
-        or obj.Name == "ResourceChest"
+    if not obj or not obj:IsA("Model") then return false end
+    -- Live game objects observed in Workspace.GameMap use "Standard Treasure",
+    -- not "ResourceChest". Keep the old name as a compatibility fallback.
+    return obj.Name == "Standard Treasure" or obj.Name == "ResourceChest"
 end
+
 local function chestLooksOpened(chest)
     if not chest or not chest.Parent then return true end
     local partCount, transparentCount = 0, 0
