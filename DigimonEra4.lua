@@ -317,6 +317,9 @@ local function loadSavedDungeonSettings()
     if type(saved.Level) == "string" then DungeonSettings.Level = saved.Level end
     if type(saved.LockMap) == "boolean" then DungeonSettings.LockMap = saved.LockMap end
     if type(saved.LockLevel) == "boolean" then DungeonSettings.LockLevel = saved.LockLevel end
+    if type(saved.HealDropAmount) == "number" then
+        HEAL_DROP_AMOUNT = math.clamp(math.floor(saved.HealDropAmount), 0, 1000000)
+    end
     return true
 end
 
@@ -331,7 +334,8 @@ local function saveDungeonSettings()
             Map = DungeonSettings.Map,
             Level = DungeonSettings.Level,
             LockMap = DungeonSettings.LockMap,
-            LockLevel = DungeonSettings.LockLevel
+            LockLevel = DungeonSettings.LockLevel,
+            HealDropAmount = HEAL_DROP_AMOUNT
         }))
     end)
     if not ok then warn("[Dungeon Settings] บันทึกค่าไม่สำเร็จ:", err) end
@@ -537,10 +541,11 @@ inputCorner.Parent = healInput
 healInput.FocusLost:Connect(function()
     local val = tonumber(healInput.Text)
 
-    if val and val > 0 then
-        HEAL_DROP_AMOUNT = math.floor(val)
+    if val and val == val and val >= 0 then
+        HEAL_DROP_AMOUNT = math.clamp(math.floor(val), 0, 1000000)
         healInput.Text = tostring(HEAL_DROP_AMOUNT)
-        sendNotification("Auto Heal Setup", "ตั้งค่า HP ที่ต้องการแล้ว")
+        saveDungeonSettings()
+        sendNotification("Auto Heal Setup", "ตั้งค่า HP ที่ต้องการแล้ว: " .. tostring(HEAL_DROP_AMOUNT))
     else
         healInput.Text = tostring(HEAL_DROP_AMOUNT)
         sendNotification("Error", "กรุณากรอกตัวเลขที่ถูกต้อง")
