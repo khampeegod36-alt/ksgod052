@@ -1,3 +1,7 @@
+-- SILENT MODE: suppress this script's console output only.
+local function print(...) end
+local function warn(...) end
+
 print("[Digimon Era] SCRIPT STARTED - GUI FIXED & VISIBLE")
 -- ================================================
 -- DIGIMON ERA AUTO FARM + AUTO FEED + AUTO EXPLORE + DUNGEON LOOP
@@ -74,6 +78,9 @@ local function setupTeleportQueue()
     local code = [[
         task.wait(10)
 
+        local function print(...) end
+        local function warn(...) end
+
         local Players = game:GetService("Players")
         local CoreGui = game:GetService("CoreGui")
         local player = Players.LocalPlayer
@@ -136,13 +143,7 @@ end)
 
 -- NOTIFICATION
 local function sendNotification(title, text)
-    pcall(function()
-        StarterGui:SetCore("SendNotification", {
-            Title = title,
-            Text = text,
-            Duration = 2
-        })
-    end)
+    -- Disabled intentionally: no on-screen notifications.
 end
 
 -- ================================================
