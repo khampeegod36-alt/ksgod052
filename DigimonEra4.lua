@@ -1013,7 +1013,7 @@ end
 
 local EXPLORE_CHECK_INTERVAL = 5
 local INVESTIGATE_COOLDOWN = 5
-local EXPLORE_MAX_MAP = 3
+local EXPLORE_MAX_MAP = 5
 
 local lastInvestigateTime = tick()
 local exploringNow = false
@@ -1430,7 +1430,7 @@ task.spawn(function()
                     -- Keep the map open so a later loop can retry.
                 else
                     print(
-                        "[Auto Explore] ไม่พบห้องถัดไปใน Map1 ถึง Map3"
+                        "[Auto Explore] ไม่พบห้องถัดไปใน Map1 ถึง Map5"
                     )
                 end
             end)
@@ -2985,15 +2985,31 @@ local function selectForestAndStart()
     return fireButton(secondStart)
 end
 
--- Auto Evacuate is allowed only after the actual final room of Floor 3
+-- Auto Evacuate is allowed only after the last room actually listed on Floor 5
 -- has reached 100%, and the HUD confirms evacuation progress is complete.
-local function isMapThreeComplete()
+-- Detect the final room from the map UI instead of hardcoding a room count.
+local function isFinalFloorComplete()
     local mapFrame = getMapFrame()
     local scrolling = mapFrame and mapFrame:FindFirstChild("ScrollingFrame")
-    local mapThree = scrolling and scrolling:FindFirstChild("Map3")
-    local finalRoom = mapThree and mapThree:FindFirstChild("Layer_3_SmallMap_7")
+    local finalFloor = scrolling and scrolling:FindFirstChild("Map" .. tostring(EXPLORE_MAX_MAP))
 
-    if not finalRoom or not finalRoom:IsA("TextButton") then
+    if not finalFloor then
+        return false
+    end
+
+    local finalRoom = nil
+    local finalRoomNumber = -1
+    for _, room in ipairs(finalFloor:GetChildren()) do
+        if room:IsA("TextButton") then
+            local roomNumber = tonumber(room.Name:match("^Layer_%d+_SmallMap_(%d+)$"))
+            if roomNumber and roomNumber > finalRoomNumber then
+                finalRoom = room
+                finalRoomNumber = roomNumber
+            end
+        end
+    end
+
+    if not finalRoom then
         return false
     end
 
@@ -3010,7 +3026,7 @@ local function isMapThreeComplete()
     local progressText = progressLabel and progressLabel:IsA("TextLabel")
         and tostring(progressLabel.Text) or ""
 
-    -- The user's in-game check confirmed the room cannot be evacuated before 100%.
+    -- Preserve the existing requirement that the HUD progress also reaches 100%.
     return progressText:match("100%s*%%") ~= nil
 end
 
@@ -3149,7 +3165,7 @@ local function runDungeonRound()
     end
 
     if game.PlaceId == DUNGEON_PLACE_ID then
-        sendNotification("Dungeon Loop", "เริ่มฟาร์มจนเคลียร์ Map3")
+        sendNotification("Dungeon Loop", "เริ่มฟาร์มจนเคลียร์ Map" .. tostring(EXPLORE_MAX_MAP))
 
         enableAllAutoButtons()
 
@@ -3157,7 +3173,7 @@ local function runDungeonRound()
         local completed = false
         while AUTO_DUNGEON_LOOP
             and tick() - started < DUNGEON_MAX_DURATION do
-            if isMapThreeComplete() and not hasReachableLivingEnemy(120) then
+            if isFinalFloorComplete() and not hasReachableLivingEnemy(120) then
                 completed = true
                 break
             end
@@ -3167,12 +3183,12 @@ local function runDungeonRound()
         if not AUTO_DUNGEON_LOOP then return end
 
         if not completed then
-            warn("[Dungeon Loop] ยังไม่ยืนยัน Layer_3_SmallMap_7 ที่ 100% จะตรวจต่อในรอบถัดไป")
-            sendNotification("Dungeon Loop", "ยังไม่ครบชั้น 3 ที่ 100% — ฟาร์มต่อ")
+            warn("[Dungeon Loop] ยังไม่ยืนยันห้องสุดท้ายของ Map" .. tostring(EXPLORE_MAX_MAP) .. " ที่ 100% จะตรวจต่อในรอบถัดไป")
+            sendNotification("Dungeon Loop", "ยังไม่ครบชั้น " .. tostring(EXPLORE_MAX_MAP) .. " ที่ 100% — ฟาร์มต่อ")
             return
         end
 
-        sendNotification("Dungeon Loop", "ชั้น 3 ห้อง 7 ครบ 100% แล้ว กำลังอพยพกลับล็อบบี้")
+        sendNotification("Dungeon Loop", "ชั้น " .. tostring(EXPLORE_MAX_MAP) .. " ห้องสุดท้ายครบ 100% แล้ว กำลังอพยพกลับล็อบบี้")
         local evacuated = autoEvacuateToLobby()
         if not evacuated then
             warn("[Dungeon Loop] อพยพไม่สำเร็จ จะตรวจใหม่ในรอบถัดไป")
