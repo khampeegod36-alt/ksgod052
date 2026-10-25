@@ -1,7 +1,3 @@
--- SILENT MODE: suppress this script's console output only.
-local function print(...) end
-local function warn(...) end
-
 print("[Digimon Era] SCRIPT STARTED - GUI FIXED & VISIBLE")
 -- ================================================
 -- DIGIMON ERA AUTO FARM + AUTO FEED + AUTO EXPLORE + DUNGEON LOOP
@@ -78,9 +74,6 @@ local function setupTeleportQueue()
     local code = [[
         task.wait(10)
 
-        local function print(...) end
-        local function warn(...) end
-
         local Players = game:GetService("Players")
         local CoreGui = game:GetService("CoreGui")
         local player = Players.LocalPlayer
@@ -143,7 +136,8 @@ end)
 
 -- NOTIFICATION
 local function sendNotification(title, text)
-    -- Disabled intentionally: no on-screen notifications.
+    -- Notifications disabled; leave all gameplay and Auto Heal logic unchanged.
+    return
 end
 
 -- ================================================
@@ -1475,7 +1469,46 @@ end
 -- Keep the original working UI object name first; some UI versions display
 -- "Single Healing Potion S" while the instance is still named "Single Heal Potion S".
 local HEAL_POTION_TIERS = {"S", "M", "L"}
-local selectedHealPotionTier = "S"
+local POTION_SELECTION_FILE = "DigimonEra4_SelectedPotionTier.txt"
+
+local function isValidPotionTier(value)
+    return value == "S" or value == "M" or value == "L"
+end
+
+-- Keep the chosen tier through server hops and script reloads.
+-- Prefer the saved file when available; use getgenv/_G as a fallback.
+local function loadSelectedPotionTier()
+    if type(readfile) == "function" then
+        local ok, value = pcall(function()
+            return readfile(POTION_SELECTION_FILE)
+        end)
+        if ok and type(value) == "string" then
+            value = value:match("^%s*(.-)%s*$")
+            if isValidPotionTier(value) then
+                env.DigimonEraSelectedPotionTier = value
+                return value
+            end
+        end
+    end
+
+    local savedTier = env.DigimonEraSelectedPotionTier
+    if isValidPotionTier(savedTier) then
+        return savedTier
+    end
+    return "S"
+end
+
+local function saveSelectedPotionTier(value)
+    if not isValidPotionTier(value) then return end
+    env.DigimonEraSelectedPotionTier = value
+    if type(writefile) == "function" then
+        pcall(function()
+            writefile(POTION_SELECTION_FILE, value)
+        end)
+    end
+end
+
+local selectedHealPotionTier = loadSelectedPotionTier()
 local function getSelectedHealPotionNames()
     return {
         "Single Heal Potion " .. selectedHealPotionTier,
@@ -2187,6 +2220,7 @@ if potionSelectBtn then
         local index = table.find(HEAL_POTION_TIERS, selectedHealPotionTier) or 1
         index = index % #HEAL_POTION_TIERS + 1
         selectedHealPotionTier = HEAL_POTION_TIERS[index]
+        saveSelectedPotionTier(selectedHealPotionTier)
         refreshPotionSelectionButton()
         sendNotification("Potion Selection", "เลือกยา Single Healing Potion " .. selectedHealPotionTier)
     end)
